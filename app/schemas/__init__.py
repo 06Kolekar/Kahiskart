@@ -18,7 +18,7 @@ from app.schemas.notification_schema import (
 )
 
 __all__ = [
-    "UserCreate", "UserUpdate", "UserResponse", "UserLogin", "Token",
+    "UserCreate", "UserResponse", "UserLogin", "Token",
     "TenderCreate", "TenderUpdate", "TenderResponse", "TenderList", "TenderFilter",
     "KeywordCreate", "KeywordUpdate", "KeywordResponse", "KeywordList",
     "SourceCreate", "SourceUpdate", "SourceResponse", "SourceList",
