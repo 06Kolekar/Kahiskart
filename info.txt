@@ -1,0 +1,193 @@
+ROOT PROJECT
+
+```
+tender-automation-system/
+│
+├── backend/                 # FastAPI backend (CORE)
+├── frontend/                # React.js dashboard
+├── database/                # DB schema & migrations
+├── powerbi/                 # Power BI configs
+├── docs/                    # Documentation
+└── README.md
+
+-------------------------------------------------------
+|	BACKEND (FastAPI – HEART OF SYSTEM)	      |
+-------------------------------------------------------
+
+backend/
+│
+├── app/
+│   ├── main.py              # FastAPI entry point
+│
+│   ├── core/                # Core system logic
+│   │   ├── config.py        # Env & settings
+│   │   ├── database.py      # MySQL connection (SQLAlchemy)
+│   │   ├── security.py      # JWT, password hashing
+│   │   └── scheduler.py     # Job scheduler (cron, hourly, daily)
+│
+│   ├── auth/                # Authentication & Authorization
+│   │   ├── models.py        # User, Role
+│   │   ├── schemas.py       # Login/Register DTOs
+│   │   ├── routes.py        # /login, /users
+│   │   └── dependencies.py # Role-based access
+│
+│   ├── models/              # ORM Models
+│   │   ├── tender.py
+│   │   ├── keyword.py
+│   │   ├── source.py
+│   │   ├── fetch_log.py
+│   │   └── notification.py
+│
+│   ├── schemas/             # Pydantic schemas (API I/O)
+│   │   ├── tender_schema.py
+│   │   ├── keyword_schema.py
+│   │   ├── source_schema.py
+│   │   └── notification_schema.py
+│
+│   ├── routers/             # API routes
+│   │   ├── tenders.py
+│   │   ├── keywords.py
+│   │   ├── sources.py
+│   │   ├── fetch.py         # Manual "Fetch Now"
+│   │   └── notifications.py
+│
+│   ├── services/            # BUSINESS LOGIC (IMPORTANT)
+│   │   ├── tender_service.py
+│   │   ├── keyword_service.py
+│   │   ├── source_service.py
+│   │   ├── notification_service.py
+│   │   └── change_detection_service.py
+│
+│   ├── scraping/            # AUTOMATION ENGINE
+│   │   ├── base/
+│   │   │   ├── scraper.py           # Base scraper
+│   │   │   └── login_scraper.py     # Login-based scraping
+│   │   │
+│   │   ├── implementations/
+│   │   │   ├── html_scraper.py
+│   │   │   ├── pdf_scraper.py
+│   │   │   └── portal_scraper.py
+│   │   │
+│   │   ├── utils/
+│   │   │   ├── session_manager.py   # Cookies & sessions
+│   │   │   ├── pagination.py
+│   │   │   ├── date_normalizer.py
+│   │   │   └── text_cleaner.py
+│
+│   ├── keyword_engine/      # SIGNAL > NOISE LAYER
+│   │   ├── matcher.py       # Case-insensitive match
+│   │   ├── priority.py
+│   │   └── document_parser.py
+│
+│   ├── scheduler/           # JOB EXECUTION
+│   │   ├── jobs.py          # Daily, hourly, cron
+│   │   └── triggers.py
+│
+│   ├── notifications/       # ALERT SYSTEM
+│   │   ├── email.py
+│   │   ├── desktop.py
+│   │   └── preferences.py
+│
+│   ├── integrations/        # External integrations
+│   │   ├── excel_export.py
+│   │   └── powerbi.py
+│
+│   ├── utils/
+│   │   ├── encryption.py    # Secure credential storage
+│   │   ├── logger.py
+│   │   └── id_generator.py
+│
+│   └── tests/
+│       ├── test_scraping.py
+│       ├── test_keywords.py
+│       └── test_notifications.py
+│
+├── alembic/                 # DB migrations
+├── requirements.txt
+└── .env
+
+==================================================================
+||	HOW THIS MAPS TO YOUR REQUIREMENTS (IMPORTANT)		||
+==================================================================
+
+# Automated Website Access
+
+scraping/
+├── base/
+├── implementations/
+└── utils/session_manager.py
+
+# Scheduling (Daily, Hourly, Cron, Manual)
+
+scheduler/
+├── jobs.py
+├── triggers.py
+routers/fetch.py
+
+# Data Extraction + Excel Mapping
+
+services/tender_service.py
+utils/date_normalizer.py
+utils/text_cleaner.py
+integrations/excel_export.py
+
+#Keyword Engine (Signal > Noise)
+
+keyword_engine/
+├── matcher.py
+├── priority.py
+└── document_parser.py
+
+# Change Detection & Deduplication
+
+services/change_detection_service.py
+models/fetch_log.py
+
+# Notifications (Desktop + Email)
+
+notifications/
+├── email.py
+├── desktop.py
+└── preferences.py
+
+===============================================
+
+# Power BI (Live, No Uploads)
+
+integrations/powerbi.py
+powerbi/
+
+===============================================
+
+# FRONTEND (React.js)
+
+frontend/
+├── src/
+│   ├── api/
+│   ├── pages/
+│   │   ├── Dashboard.jsx
+│   │   ├── Keywords.jsx
+│   │   ├── Sources.jsx
+│   │   └── Login.jsx
+│   │
+│   ├── components/
+│   ├── hooks/
+│   └── utils/
+└── package.json
+
+--------------------------------------------
+#  DATABASE
+
+database/
+├── schema.sql
+├── indexes.sql
+└── sample_data.sql
+
+---------------------------------------------
+
+# POWER BI
+
+powerbi/
+├── TenderDashboard.pbix
+├── Dataset_Model.md
+└── Refresh_Strategy.md

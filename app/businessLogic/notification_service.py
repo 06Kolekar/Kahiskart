@@ -1,0 +1,196 @@
+from sqlalchemy.orm import Session
+from typing import List, Optional
+import logging
+from datetime import datetime
+
+from app.models.notification import Notification, NotificationType, NotificationChannel
+from app.models.tender import Tender
+from app.models.keyword import Keyword
+from app.models.user import User
+from app.notifications.email import EmailNotificationService
+from app.notifications.desktop import DesktopNotificationService
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class NotificationService:
+
+    @staticmethod
+    def send_keyword_match_notification(
+            db: Session,
+            tender: Tender,
+            matched_keywords: List[Keyword]
+    ):
+        users = db.query(User).filter(User.is_active == True).all()
+
+        email_service = EmailNotificationService()
+        desktop_service = DesktopNotificationService()
+
+        for user in users:
+            notification = Notification(
+                user_id=user.id,
+                tender_id=tender.id,
+                type=NotificationType.KEYWORD_MATCH,
+                channel=NotificationChannel.BOTH,
+                title=f"New Tender Match: {tender.title[:50]}...",
+                message=(
+                    f"Matched keywords: {', '.join([k.keyword for k in matched_keywords[:3]])}. "
+                    f"Agency: {tender.agency_name or 'N/A'}. "
+                    f"Deadline: {tender.deadline_date.strftime('%Y-%m-%d') if tender.deadline_date else 'N/A'}"
+                )
+            )
+
+            db.add(notification)
+            db.flush()
+
+            # EMAIL
+            if settings.ENABLE_EMAIL_NOTIFICATIONS:
+                try:
+                    email_service.send_new_tender_notification(
+                        tender=tender,
+                        matched_keywords=matched_keywords,
+                        recipients=[user.email]
+                    )
+                    notification.email_sent = True
+                except Exception as e:
+                    logger.error(f"Email failed: {e}")
+                    notification.error_message = str(e)
+
+            # DESKTOP
+            if settings.ENABLE_DESKTOP_NOTIFICATIONS:
+                try:
+                    desktop_service.send_notification(
+                        title=notification.title,
+                        message=notification.message
+                    )
+                    notification.desktop_sent = True
+                except Exception as e:
+                    logger.error(f"Desktop notification failed: {e}")
+
+            notification.is_sent = notification.email_sent or notification.desktop_sent
+            if notification.is_sent:
+                notification.sent_at = datetime.utcnow()
+
+        db.commit()
+
+        logger.info(
+            f"Sent keyword match notifications for tender {tender.reference_id} "
+            f"to {len(users)} users"
+        )
+
+    @staticmethod
+    def send_new_tender_notification(
+            db: Session,
+            tender: Tender
+    ):
+
+
+        users = db.query(User).filter(User.is_active == True).all()
+
+        for user in users:
+            notification = Notification(
+                user_id=user.id,
+                tender_id=tender.id,
+                type=NotificationType.NEW_TENDER,
+                channel=NotificationChannel.EMAIL,  # Less urgent, email only
+                title=f"New Tender Published: {tender.title[:50]}...",
+                message=f"Agency: {tender.agency_name or 'N/A'}. "
+                        f"Published: {tender.published_date.strftime('%Y-%m-%d') if tender.published_date else 'N/A'}"
+            )
+
+            db.add(notification)
+
+        db.commit()
+
+    @staticmethod
+    def send_deadline_approaching_notification(
+            db: Session,
+            tender: Tender,
+            days_remaining: int
+    ):
+        users = db.query(User).filter(User.is_active == True).all()
+
+        email_service = EmailNotificationService()
+        desktop_service = DesktopNotificationService()
+
+        for user in users:
+            notification = Notification(
+                user_id=user.id,
+                tender_id=tender.id,
+                type=NotificationType.DEADLINE_APPROACHING,
+                channel=NotificationChannel.BOTH,
+                title=f"Deadline Approaching: {tender.title[:50]}...",
+                message=(
+                    f"{days_remaining} days remaining until deadline. "
+                    f"Deadline: {tender.deadline_date.strftime('%Y-%m-%d')}"
+                )
+            )
+
+            db.add(notification)
+            db.flush()
+
+            # Urgent → send immediately
+            if days_remaining <= 7:
+
+                # EMAIL
+                if settings.ENABLE_EMAIL_NOTIFICATIONS:
+                    try:
+                        email_service.send_deadline_alert(
+                            tender=tender,
+                            recipients=[user.email],
+                            days_remaining=days_remaining
+                        )
+                        notification.email_sent = True
+                    except Exception as e:
+                        logger.error(f"Deadline email failed: {e}")
+                        notification.error_message = str(e)
+
+                # DESKTOP
+                if settings.ENABLE_DESKTOP_NOTIFICATIONS:
+                    try:
+                        desktop_service.send_notification(
+                            title=notification.title,
+                            message=notification.message
+                        )
+                        notification.desktop_sent = True
+                    except Exception as e:
+                        logger.error(f"Desktop deadline alert failed: {e}")
+
+                notification.is_sent = notification.email_sent or notification.desktop_sent
+                if notification.is_sent:
+                    notification.sent_at = datetime.utcnow()
+
+        db.commit()
+
+    @staticmethod
+    def check_approaching_deadlines(db: Session):
+
+        from datetime import date, timedelta
+
+        today = date.today()
+        deadline_7days = today + timedelta(days=7)
+
+        # Find tenders with deadlines in next 7 days
+        tenders = db.query(Tender).filter(
+            Tender.deadline_date <= deadline_7days,
+            Tender.deadline_date >= today,
+            Tender.status != "expired",
+            Tender.is_deleted == False
+        ).all()
+
+        for tender in tenders:
+            days_remaining = (tender.deadline_date - today).days
+
+            # Check if notification already sent
+            existing = db.query(Notification).filter(
+                Notification.tender_id == tender.id,
+                Notification.type == NotificationType.DEADLINE_APPROACHING
+            ).first()
+
+            if not existing:
+                NotificationService.send_deadline_approaching_notification(
+                    db, tender, days_remaining
+                )
+
+        logger.info(f"Checked {len(tenders)} tenders for approaching deadlines")
