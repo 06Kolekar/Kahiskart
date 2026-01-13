@@ -191,3 +191,53 @@ powerbi/
 ├── TenderDashboard.pbix
 ├── Dataset_Model.md
 └── Refresh_Strategy.md
+
+********+*++**+*+*+***+*+*+*+*+*+*+****+**+*+*+***+*+*+*+*+*+***+*+*******
+
+TenderAutomationSystem/
+│
+├── TenderAutomationSystem_Setup.exe   ← MAIN APP
+│
+├── database/
+│   ├── mysql-installer.exe
+│   ├── schema.sql
+│   └── seed.sql
+│
+├── powerbi/
+│   └── TenderDashboard.pbix
+│
+├── docs/
+│   ├── UserManual.pdf
+│   └── InstallationGuide.pdf
+│
+└── config/
+    └── .env.example
+
+| Component        | Inside EXE | Outside |
+| ---------------- | ---------- | ------- |
+| React            | ✅          | ❌       |
+| FastAPI          | ✅          | ❌       |
+| MySQL Server     | ❌          | ✅       |
+| Power BI Desktop | ❌          | ✅       |
+| Power BI Report  | ❌          | ✅       |
+| DB schema        | ❌          | ✅       |
+| Docs             | ❌          | ✅       |
+
+TenderAutomationSystem_v1.0.zip
+│
+├── TenderAutomationSystem_Setup.exe
+├── docs/
+│   └── UserManual.pdf
+├── powerbi/
+│   └── Dashboard.pbix
+└── config/
+    └── .env
+
+tender-automation-system/
+│
+├── backend/     ✅ compiled into exe
+├── frontend/    ✅ compiled into exe
+├── database/    ⚠️ depends
+├── powerbi/     ⚠️ depends
+├── docs/        ⚠️ depends
+└── README.md    ❌ not in exe

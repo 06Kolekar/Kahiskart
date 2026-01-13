@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DATABASE_PORT: int = 3306
     DATABASE_USER: str = "root"
     DATABASE_PASSWORD: str
-    DATABASE_NAME: str = "tender_intel"
+    DATABASE_NAME: str = "tender_db"
 
     # Security
     SECRET_KEY: str
