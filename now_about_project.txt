@@ -552,3 +552,33 @@ Less anti-bot resistant
 🔐 Cookie persistence after login
 
 📦 Move Playwright + Requests under one unified interface
+
+-----------
+|   IMP   |
+-----------
+
+sources = configuration only
+
+scraper_runner.py = data ingestion brain
+
+Tender table = final output
+
+/api/tenders = read-only API
+
+You were missing DB insertion logic
+
+FastAPI
+   ↓
+Task Queue (Celery + Redis)
+   ↓
+Scraper Workers
+   ↓
+HTML / PDF / Excel / Portal Scrapers
+   ↓
+Normalize Data
+   ↓
+Save to MySQL
+   ↓
+Power BI reads MySQL
+
+Done bro just give me the description to work on new chat and which file i have to share and scraper_service.py has dummy data not real

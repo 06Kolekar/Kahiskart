@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import re
 import logging
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.keyword import Keyword , KeywordPriority
 
@@ -11,11 +13,13 @@ logger = logging.getLogger(__name__)
 class KeywordService:
 
     @staticmethod
-    def match_keywords(db: Session, title: str, description: Optional[str] = None) -> List[Keyword]:
+    async def match_keywords(db: AsyncSession, title: str, description: Optional[str] = None) -> List[Keyword]:
 
 
         # Get all active keywords
-        keywords = db.query(Keyword).filter(Keyword.is_active == True).all()
+        # keywords = db.query(Keyword).filter(Keyword.is_active == True).all()
+        result = await db.execute(select(Keyword).where(Keyword.is_active == True))
+        keywords = result.scalars().all()
 
         if not keywords:
             return []

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ENCRYPTION_KEY: str
 
     # Email (Gmail)
     SMTP_HOST: str = "smtp.gmail.com"
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str
     SMTP_FROM_EMAIL: str
     SMTP_FROM_NAME: str = "Tender Intel"
+    SMTP_TLS: bool = True  # Added for TLS support
 
     # Scraping
     SCRAPING_TIMEOUT: int = 30

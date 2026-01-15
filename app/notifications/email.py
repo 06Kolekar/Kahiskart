@@ -21,7 +21,8 @@ class EmailNotificationService:
         self.smtp_port = settings.SMTP_PORT
         self.smtp_user = settings.SMTP_USER
         self.smtp_password = settings.SMTP_PASSWORD
-        self.smtp_from = settings.SMTP_FROM
+        # self.smtp_from = settings.SMTP_FROM
+        self.smtp_from = settings.SMTP_FROM_EMAIL
         self.smtp_tls = settings.SMTP_TLS
 
     async def send_new_tender_notification(

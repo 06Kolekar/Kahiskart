@@ -10,6 +10,8 @@ from app.models.user import User
 from app.notifications.email import EmailNotificationService
 from app.notifications.desktop import DesktopNotificationService
 from app.core.config import settings
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -17,17 +19,25 @@ logger = logging.getLogger(__name__)
 class NotificationService:
 
     @staticmethod
-    def send_keyword_match_notification(
-            db: Session,
+    async def send_keyword_match_notification(
+            db: AsyncSession,
             tender: Tender,
             matched_keywords: List[Keyword]
     ):
-        users = db.query(User).filter(User.is_active == True).all()
+        # users = db.query(User).filter(User.is_active == True).all()
+        result = await db.execute(select(User).where(User.is_active == True))
+        users = result.scalars().all()
 
         email_service = EmailNotificationService()
         desktop_service = DesktopNotificationService()
 
         for user in users:
+            deadline = (
+                datetime.strptime(tender.deadline_date, "%Y-%m-%d") 
+                if tender.deadline_date else None
+            )
+
+            deadline_str = deadline.strftime("%Y-%m-%d") if deadline else "N/A"
             notification = Notification(
                 user_id=user.id,
                 tender_id=tender.id,
@@ -37,17 +47,18 @@ class NotificationService:
                 message=(
                     f"Matched keywords: {', '.join([k.keyword for k in matched_keywords[:3]])}. "
                     f"Agency: {tender.agency_name or 'N/A'}. "
-                    f"Deadline: {tender.deadline_date.strftime('%Y-%m-%d') if tender.deadline_date else 'N/A'}"
+                    # f"Deadline: {tender.deadline_date.strftime('%Y-%m-%d') if tender.deadline_date else 'N/A'}"
+                    f"Deadline: {deadline_str}"
                 )
             )
 
             db.add(notification)
-            db.flush()
+            await db.flush()
 
             # EMAIL
             if settings.ENABLE_EMAIL_NOTIFICATIONS:
                 try:
-                    email_service.send_new_tender_notification(
+                    await email_service.send_new_tender_notification(
                         tender=tender,
                         matched_keywords=matched_keywords,
                         recipients=[user.email]
@@ -72,7 +83,7 @@ class NotificationService:
             if notification.is_sent:
                 notification.sent_at = datetime.utcnow()
 
-        db.commit()
+        await db.commit()
 
         logger.info(
             f"Sent keyword match notifications for tender {tender.reference_id} "

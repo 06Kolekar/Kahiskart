@@ -6,11 +6,12 @@ class EncryptionService:
     def __init__(self):
         key = settings.ENCRYPTION_KEY.encode()
 
-        if len(key) != 32:
-            raise ValueError("ENCRYPTION_KEY must be exactly 32 bytes")
+        # if len(key) != 32:
+        #     raise ValueError("ENCRYPTION_KEY must be exactly 32 bytes")
 
         # Fernet requires base64-encoded 32-byte key
-        self.cipher = Fernet(Fernet.generate_key())
+        # self.cipher = Fernet(Fernet.generate_key())
+        self.cipher = Fernet(key) 
 
     def encrypt(self, text: str) -> str:
         if not text:

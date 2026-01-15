@@ -9,7 +9,7 @@ from app.core.database import engine, Base
 from app.core.scheduler import scheduler
 
 # Import routers
-from app.routers import auth, tenders, keywords, sources, fetch, notifications
+from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router
 
 # Configure logging
 logging.basicConfig(
@@ -70,6 +70,8 @@ app.include_router(keywords.router, prefix="/api/keywords", tags=["Keywords"])
 app.include_router(sources.router, prefix="/api/sources", tags=["Sources"])
 app.include_router(fetch.router, prefix="/api/fetch", tags=["Fetch"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
+# Scarpe_Router
+app.include_router(scrape_router.router, prefix="/scrape", tags=["Scraping"])
 
 
 @app.get("/")

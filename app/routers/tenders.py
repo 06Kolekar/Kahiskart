@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, func
 from typing import List, Optional
 from datetime import datetime, date
@@ -15,6 +15,9 @@ from app.schemas.tender_schema import (
 import openpyxl
 from io import BytesIO
 from fastapi.responses import StreamingResponse
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+import pandas as pd 
 
 router = APIRouter()
 
@@ -77,18 +80,26 @@ async def get_tenders(
         "page_size": page_size,
         "items": items
     }
-
+    
 
 @router.get("/{tender_id}", response_model=TenderResponse)
 async def get_tender(
         tender_id: int,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    tender = db.query(Tender).filter(
-        Tender.id == tender_id,
-        Tender.is_deleted == False
-    ).first()
+
+    stmt = (
+        select(Tender)
+        .options(joinedload(Tender.source))   # <-- IMPORTANT FIX
+        .where(
+            Tender.id == tender_id,
+            Tender.is_deleted == False
+        )
+    )
+
+    result = await db.execute(stmt)
+    tender = result.scalar_one_or_none()
 
     if not tender:
         raise HTTPException(
@@ -96,13 +107,15 @@ async def get_tender(
             detail="Tender not found"
         )
 
-    # Mark as viewed if it was new
+    # Mark as viewed if new
     if tender.status == "new":
         tender.status = "viewed"
-        db.commit()
+        await db.commit()
 
     tender_dict = TenderResponse.from_orm(tender).dict()
-    tender_dict['source_name'] = tender.source.name if tender.source else None
+    tender_dict["source_name"] = (
+        tender.source.name if tender.source else None
+    )
 
     return TenderResponse(**tender_dict)
 
@@ -111,13 +124,21 @@ async def get_tender(
 async def update_tender(
         tender_id: int,
         tender_update: TenderUpdate,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    tender = db.query(Tender).filter(
-        Tender.id == tender_id,
-        Tender.is_deleted == False
-    ).first()
+
+    stmt = (
+        select(Tender)
+        .options(joinedload(Tender.source))
+        .where(
+            Tender.id == tender_id,
+            Tender.is_deleted == False
+        )
+    )
+
+    result = await db.execute(stmt)
+    tender = result.scalar_one_or_none()
 
     if not tender:
         raise HTTPException(
@@ -125,15 +146,19 @@ async def update_tender(
             detail="Tender not found"
         )
 
-    # Update fields
-    for field, value in tender_update.dict(exclude_unset=True).items():
+    # Apply updates
+    update_data = tender_update.dict(exclude_unset=True)
+
+    for field, value in update_data.items():
         setattr(tender, field, value)
 
-    db.commit()
-    db.refresh(tender)
+    await db.commit()
+    await db.refresh(tender)
 
     tender_dict = TenderResponse.from_orm(tender).dict()
-    tender_dict['source_name'] = tender.source.name if tender.source else None
+    tender_dict["source_name"] = (
+        tender.source.name if tender.source else None
+    )
 
     return TenderResponse(**tender_dict)
 
@@ -161,66 +186,124 @@ async def delete_tender(
 
 @router.get("/export/excel")
 async def export_tenders_excel(
-        status: Optional[str] = Query(None),
-        source_id: Optional[int] = Query(None),
-        date_from: Optional[date] = Query(None),
-        date_to: Optional[date] = Query(None),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+    status: str | None = Query(None),
+    source_id: int | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    query = db.query(Tender).filter(Tender.is_deleted == False)
 
-    if status:
-        query = query.filter(Tender.status == status)
-    if source_id:
-        query = query.filter(Tender.source_id == source_id)
-    if date_from:
-        query = query.filter(Tender.published_date >= date_from)
-    if date_to:
-        query = query.filter(Tender.published_date <= date_to)
+    stmt = (
+        select(Tender)
+        .options(
+            joinedload(Tender.source),              # load source safely
+            joinedload(Tender.keyword_matches)      # <-- IMPORTANT FIX
+        )
+    )
 
-    tenders = query.order_by(Tender.published_date.desc()).all()
+    result = await db.execute(stmt)
+    tenders = result.unique().scalars().all()
 
-    # Create Excel workbook
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Tenders"
+    if not tenders:
+        df = pd.DataFrame([{
+            "Message": "No tenders found in database"
+        }])
+    else:
+        data = []
+        for t in tenders:
+            data.append({
+                "Tender ID": t.id,
+                "Reference ID": t.reference_id,
+                "Title": t.title,
+                "Status": t.status,
+                "Deadline": str(t.deadline_date) if t.deadline_date else None,
 
-    # Headers (matching your UI from image)
-    headers = [
-        "Title", "Reference ID", "Agency", "Location",
-        "Source", "Published Date", "Deadline",
-        "Days Until Deadline", "Status", "Description"
-    ]
-    ws.append(headers)
+                # Convert relationship to readable text
+                "Matched Keywords": [
+                    km.keyword_id for km in (t.keyword_matches or [])
+                ],
 
-    # Data rows
-    for tender in tenders:
-        ws.append([
-            tender.title,
-            tender.reference_id,
-            tender.agency_name or "",
-            tender.agency_location or "",
-            tender.source.name if tender.source else "",
-            tender.published_date.strftime("%Y-%m-%d") if tender.published_date else "",
-            tender.deadline_date.strftime("%Y-%m-%d") if tender.deadline_date else "",
-            tender.days_until_deadline if tender.days_until_deadline else "",
-            tender.status,
-            tender.description or ""
-        ])
+                "Source": t.source.name if t.source else "Unknown",
+                "Created At": t.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            })
 
-    # Save to BytesIO
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
+        df = pd.DataFrame(data)
 
-    filename = f"tenders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Tenders")
+
+    buffer.seek(0)
 
     return StreamingResponse(
-        output,
+        buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": "attachment; filename=tenders_export.xlsx"}
     )
+
+# @router.get("/export/excel")
+# async def export_tenders_excel(
+#         status: Optional[str] = Query(None),
+#         source_id: Optional[int] = Query(None),
+#         date_from: Optional[date] = Query(None),
+#         date_to: Optional[date] = Query(None),
+#         db: Session = Depends(get_db),
+#         current_user: User = Depends(get_current_user)
+# ):
+#     query = db.query(Tender).filter(Tender.is_deleted == False)
+
+#     if status:
+#         query = query.filter(Tender.status == status)
+#     if source_id:
+#         query = query.filter(Tender.source_id == source_id)
+#     if date_from:
+#         query = query.filter(Tender.published_date >= date_from)
+#     if date_to:
+#         query = query.filter(Tender.published_date <= date_to)
+
+#     tenders = query.order_by(Tender.published_date.desc()).all()
+
+#     # Create Excel workbook
+#     wb = openpyxl.Workbook()
+#     ws = wb.active
+#     ws.title = "Tenders"
+
+#     # Headers (matching your UI from image)
+#     headers = [
+#         "Title", "Reference ID", "Agency", "Location",
+#         "Source", "Published Date", "Deadline",
+#         "Days Until Deadline", "Status", "Description"
+#     ]
+#     ws.append(headers)
+
+#     # Data rows
+#     for tender in tenders:
+#         ws.append([
+#             tender.title,
+#             tender.reference_id,
+#             tender.agency_name or "",
+#             tender.agency_location or "",
+#             tender.source.name if tender.source else "",
+#             tender.published_date.strftime("%Y-%m-%d") if tender.published_date else "",
+#             tender.deadline_date.strftime("%Y-%m-%d") if tender.deadline_date else "",
+#             tender.days_until_deadline if tender.days_until_deadline else "",
+#             tender.status,
+#             tender.description or ""
+#         ])
+
+#     # Save to BytesIO
+#     output = BytesIO()
+#     wb.save(output)
+#     output.seek(0)
+
+#     filename = f"tenders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+#     return StreamingResponse(
+#         output,
+#         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+#         headers={"Content-Disposition": f"attachment; filename={filename}"}
+#     )
 
 
 @router.get("/stats/dashboard")
