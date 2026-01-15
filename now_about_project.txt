@@ -1,0 +1,554 @@
+Yes — **some of the libraries in your list are commonly used for web scraping**, while most are for web apps, databases, PDFs, auth, etc.
+
+### 🕷️ Scraping-related libraries in your list
+
+These are **directly used for web scraping or crawling**:
+
+* **beautifulsoup4** – HTML/XML parsing (very common for scraping)
+* **soupsieve** – CSS selector engine used by BeautifulSoup
+* **lxml** – Fast HTML/XML parser (often paired with BeautifulSoup)
+* **requests** – HTTP requests (classic scraping tool)
+* **httpx** – Modern async HTTP client (scraping APIs & sites)
+* **urllib3** – Low-level HTTP client (used under the hood)
+* **selenium** – Browser automation (used for JS-heavy sites)
+* **PySocks** – Proxy support (often used in scraping setups)
+
+### 📄 Data extraction (often used *after* scraping)
+
+These aren’t web scrapers themselves, but are **commonly used to extract data from downloaded files**:
+
+* **pdfminer.six**
+* **pdfplumber**
+* **PyPDF2**
+* **pypdfium2**
+* **openpyxl** (Excel files)
+* **pandas** (data cleaning/processing)
+* **numpy**
+
+### 🌐 Async / networking (scraping support tools)
+
+Helpful for **high-performance or async scraping**:
+
+* **anyio**
+* **trio**
+* **trio-websocket**
+* **websockets**
+* **wsproto**
+* **httptools**
+* **h11**
+* **httpcore**
+
+### ❌ Not scraping-related
+
+Everything else (FastAPI, SQLAlchemy, auth libs, email libs, schedulers, crypto, etc.) is **not for scraping**, though they may be part of a system that *uses* scraped data.
+
+---
+
+### ✅ Summary (quick answer)
+
+**Yes, these belong to scraping:**
+
+> `beautifulsoup4, soupsieve, lxml, requests, httpx, selenium, urllib3, PySocks`
+
+If you want, tell me:
+
+* whether you're doing **static scraping**, **JS-heavy scraping**, or **API scraping**,
+  and I can suggest a **clean minimal scraping stack** from what you already have.
+
+==============================================================================================================================
+------------------------------------------------------------------------------------------------------------------------------
+/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\
+|                                                       ISSSUES                                                              |
+\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/
+------------------------------------------------------------------------------------------------------------------------------
+==============================================================================================================================
+
+-------------
+| Phase - I |
+-------------
+
+Short answer: **your scraping architecture is mostly complete**, but **yes — there are a few things you should add / fix** to make it correct, consistent, and production-safe.
+
+Below is a **clear checklist** with **exact code changes** where needed.
+
+---
+
+## 1️⃣ Missing dependency (important)
+
+You are using **Playwright**, but it is **NOT in your requirements list**.
+
+### ✅ Add this
+
+```txt
+playwright==1.41.2
+```
+
+Then run once:
+
+```bash
+playwright install
+```
+
+Without this, `LoginScraper` will fail at runtime.
+
+---
+
+## 2️⃣ Async vs Sync mismatch (CRITICAL)
+
+You currently mix:
+
+* `async def scrape()`
+* **blocking code** (`requests`, `selenium`, `time.sleep`)
+
+### ❌ Problem
+
+Blocking calls inside async code will **freeze your event loop**.
+
+---
+
+## 3️⃣ Fix: PDFScraper should NOT be async
+
+### ❌ Current
+
+```python
+class PDFScraper(BaseScraper):
+    def scrape(self) -> List[Dict]:
+```
+
+### ✅ Correct
+
+Either:
+
+#### Option A (recommended): Keep it synchronous
+
+```python
+class PDFScraper(BaseScraper):
+    def scrape(self) -> List[Dict]:
+        ...
+```
+
+And **do NOT call it with `await`**
+
+#### Option B: Make it truly async (advanced)
+
+Use `httpx.AsyncClient` + `run_in_executor` for PyPDF2.
+
+---
+
+## 4️⃣ Selenium scraper is incorrectly async ❌
+
+### ❌ Current
+
+```python
+async def fetch_data(self) -> List[Dict]:
+```
+
+Selenium is **100% synchronous**.
+
+### ✅ Fix
+
+```python
+def fetch_data(self) -> List[Dict]:
+```
+
+Also remove all `await` inside Selenium code.
+
+---
+
+## 5️⃣ BaseScraper constructor mismatch ❌
+
+### ❌ Problem
+
+```python
+class PortalScraper(BaseScraper):
+    def __init__(self, source_config: Dict):
+        super().__init__(source_config)
+```
+
+But `BaseScraper` expects a `Source` model, not `Dict`.
+
+### ✅ Fix
+
+Either:
+
+```python
+def __init__(self, source: Source):
+    super().__init__(source)
+```
+
+OR update `BaseScraper` to support dict-based configs (not recommended).
+
+---
+
+## 6️⃣ Duplicate `clean_text()` definitions ❌
+
+You defined `clean_text` **twice**:
+
+* `scraping/utils/text_cleaner.py`
+* Another standalone function at the bottom
+
+### ✅ Fix
+
+Keep **ONE** implementation only:
+
+```python
+from app.scraping.utils import clean_text
+```
+
+Delete the duplicate function.
+
+---
+
+## 7️⃣ Playwright login stability improvement ✅ (recommended)
+
+Add **explicit selector waits** instead of `networkidle` only.
+
+### ✅ Improve `_login()`
+
+```python
+await page.goto(self.source.login_url, wait_until="domcontentloaded")
+
+await page.wait_for_selector('input[name="username"]')
+await page.fill('input[name="username"]', username)
+await page.fill('input[name="password"]', password)
+
+await page.click('button[type="submit"]')
+
+await page.wait_for_load_state("networkidle")
+```
+
+This avoids flaky logins.
+
+---
+
+## 8️⃣ BaseScraper should enforce async OR sync (design)
+
+Right now you have:
+
+* `async scrape()` (Playwright, HTML)
+* `sync scrape()` (PDF)
+
+### ✅ Best practice
+
+Split base classes:
+
+```python
+class AsyncScraper(BaseScraper):
+    @abstractmethod
+    async def scrape(self) -> List[Dict]:
+        pass
+
+class SyncScraper(BaseScraper):
+    @abstractmethod
+    def scrape(self) -> List[Dict]:
+        pass
+```
+
+This prevents misuse.
+
+---
+
+## 9️⃣ Missing validation on extracted tenders ⚠️
+
+You already have:
+
+```python
+validate_tender_data()
+```
+
+### ✅ Enforce everywhere
+
+Before returning tenders:
+
+```python
+tenders = [t for t in tenders if self.validate_tender_data(t)]
+```
+
+---
+
+## ✅ Final Verdict
+
+### You do **NOT** need new scrapers
+
+### You **DO** need:
+
+✔ Add Playwright dependency
+✔ Fix async/sync misuse
+✔ Fix BaseScraper constructor usage
+✔ Remove duplicate utilities
+✔ Improve Playwright waits
+
+---
+
+If you want, I can:
+
+* 🔧 **Refactor everything into a clean unified scraper framework**
+* 🚀 Convert PDF + HTML scrapers to async
+* 🧪 Add retry, captcha detection, login failure detection
+
+Just tell me 👍
+
+--------------
+| Phase - II |
+--------------
+
+Short answer: **yes — there are a few important fixes and additions you should make**, mainly for **consistency, correctness, and stability**. Your architecture is solid, but right now it has some sharp edges.
+
+Below is a **clear checklist** with **exact code you should add or change** 👇
+
+---
+
+## 1️⃣ Playwright is used but NOT in your requirements
+
+You are using:
+
+```python
+from playwright.async_api import async_playwright
+```
+
+### ✅ You MUST add this dependency
+
+```txt
+playwright==1.41.2
+```
+
+And install browsers once:
+
+```bash
+playwright install
+```
+
+Without this → runtime failure.
+
+---
+
+## 2️⃣ Async vs Sync is mixed (this is a real bug)
+
+### ❌ Problems
+
+* `BaseScraper.scrape()` is **async**
+* `PDFScraper.scrape()` is **sync**
+* `PortalScraper.fetch_data()` is async but **not overriding `scrape()`**
+* `requests` + Selenium are blocking inside async code
+
+### ✅ Fix: make behavior explicit
+
+#### Option A (recommended): split async & sync scrapers
+
+```python
+class BaseScraper(ABC):
+    @abstractmethod
+    async def scrape(self) -> List[Dict]:
+        pass
+```
+
+Then:
+
+```python
+class PDFScraper(BaseScraper):
+    async def scrape(self) -> List[Dict]:
+        return await asyncio.to_thread(self._scrape_sync)
+
+    def _scrape_sync(self) -> List[Dict]:
+        ...
+```
+
+Same for Selenium.
+
+---
+
+## 3️⃣ PortalScraper is BROKEN (doesn’t override `scrape()`)
+
+You have:
+
+```python
+async def fetch_data(self)
+```
+
+But BaseScraper requires:
+
+```python
+async def scrape(self)
+```
+
+### ✅ Fix this immediately
+
+```python
+class PortalScraper(BaseScraper):
+    async def scrape(self) -> List[Dict]:
+        return await self.fetch_data()
+```
+
+Otherwise polymorphism **will fail silently**.
+
+---
+
+## 4️⃣ `source_config` vs `Source` mismatch
+
+Your BaseScraper expects:
+
+```python
+def __init__(self, source: Source):
+```
+
+But PortalScraper does:
+
+```python
+def __init__(self, source_config: Dict):
+    super().__init__(source_config)
+```
+
+### ❌ This will break attributes like:
+
+```python
+self.source.url
+self.source.username
+```
+
+### ✅ Fix (pick ONE approach)
+
+#### Recommended: always use `Source`
+
+```python
+class PortalScraper(BaseScraper):
+    def __init__(self, source: Source):
+        super().__init__(source)
+```
+
+Then replace:
+
+```python
+self.source_config.get(...)
+```
+
+with:
+
+```python
+self.source.some_field
+```
+
+---
+
+## 5️⃣ Duplicate `clean_text` functions (dangerous)
+
+You have **two implementations**:
+
+* `app.scraping.utils.text_cleaner`
+* another standalone `clean_text`
+
+### ✅ Fix: keep ONE canonical version
+
+Delete one and **only import from**:
+
+```python
+from app.scraping.utils import clean_text
+```
+
+Otherwise you’ll get inconsistent cleaning results.
+
+---
+
+## 6️⃣ Selenium inside async = event loop blocking
+
+### ❌ Current behavior
+
+Selenium blocks the event loop → kills concurrency.
+
+### ✅ Safe fix (no rewrite needed)
+
+Wrap Selenium logic:
+
+```python
+async def scrape(self) -> List[Dict]:
+    return await asyncio.to_thread(self._scrape_sync)
+```
+
+---
+
+## 7️⃣ Missing timeout + error handling in Playwright login
+
+Add **timeouts & failure detection**:
+
+```python
+await page.goto(self.source.login_url, timeout=30_000)
+
+await page.wait_for_selector(
+    'button[type="submit"]',
+    timeout=10_000
+)
+```
+
+Also verify login:
+
+```python
+if "login" in page.url.lower():
+    raise Exception("Login failed")
+```
+
+---
+
+## 8️⃣ Add a scraper registry (optional but powerful)
+
+This prevents `if/else` hell later:
+
+```python
+SCRAPER_REGISTRY = {
+    "html": HTMLScraper,
+    "pdf": PDFScraper,
+    "portal": PortalScraper,
+    "login": LoginScraper,
+}
+```
+
+Usage:
+
+```python
+scraper = SCRAPER_REGISTRY[source.type](source)
+results = await scraper.scrape()
+```
+
+---
+
+## ✅ Final verdict
+
+You **do NOT need new scraping libraries**
+You **DO need**:
+
+✔ Playwright dependency
+✔ Async/sync cleanup
+✔ Fix PortalScraper override
+✔ Fix Source vs Dict mismatch
+✔ Remove duplicate utilities
+
+If you want, I can:
+
+* refactor this into a **clean async-only architecture**
+* convert Selenium → Playwright
+* add **anti-bot / stealth / proxy support**
+
+Just tell me 👍
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    ISSSUES IN SCARPING
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+No proxy support
+
+No custom headers
+
+One browser fingerprint
+
+Harder to rotate identities
+
+Less anti-bot resistant
+
+~~~ Remaing work ~~~
+
+🔄 Proxy + UA rotation module
+
+⚡ Async parallel scraping (TaskPool)
+
+🛡 Cloudflare / bot detection handling
+
+🔐 Cookie persistence after login
+
+📦 Move Playwright + Requests under one unified interface

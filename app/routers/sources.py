@@ -15,6 +15,9 @@ from app.schemas.source_schema import (
 from cryptography.fernet import Fernet
 from app.core.config import settings
 
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 router = APIRouter()
 
 
@@ -35,22 +38,26 @@ def decrypt_password(encrypted: str) -> str:
     return cipher.decrypt(encrypted.encode()).decode()
 
 
+
 @router.get("/", response_model=SourceList)
 async def get_sources(
         search: Optional[str] = Query(None),
         status: Optional[str] = Query(None),
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),  # AsyncSession
         current_user: User = Depends(get_current_user)
 ):
-    query = db.query(Source)
+    stmt = select(Source)
 
     if search:
-        query = query.filter(Source.name.ilike(f"%{search}%"))
+        stmt = stmt.where(Source.name.ilike(f"%{search}%"))
 
     if status:
-        query = query.filter(Source.status == status)
+        stmt = stmt.where(Source.status == status)
 
-    sources = query.order_by(Source.name).all()
+    stmt = stmt.order_by(Source.name)
+
+    result = await db.execute(stmt)
+    sources = result.scalars().all()  # list of Source objects
 
     # Calculate stats
     total = len(sources)
@@ -66,23 +73,74 @@ async def get_sources(
         "items": sources
     }
 
+# @router.get("/", response_model=SourceList)
+# async def get_sources(
+#         search: Optional[str] = Query(None),
+#         status: Optional[str] = Query(None),
+#         db: Session = Depends(get_db),
+#         current_user: User = Depends(get_current_user)
+# ):
+#     query = db.query(Source)
+
+#     if search:
+#         query = query.filter(Source.name.ilike(f"%{search}%"))
+
+#     if status:
+#         query = query.filter(Source.status == status)
+
+#     sources = query.order_by(Source.name).all()
+
+#     # Calculate stats
+#     total = len(sources)
+#     active = sum(1 for s in sources if s.is_active and s.status == SourceStatus.ACTIVE)
+#     disabled = sum(1 for s in sources if not s.is_active or s.status == SourceStatus.DISABLED)
+#     errors = sum(1 for s in sources if s.status == SourceStatus.ERROR)
+
+#     return {
+#         "total": total,
+#         "active": active,
+#         "disabled": disabled,
+#         "errors": errors,
+#         "items": sources
+#     }
+
+# from sqlalchemy import func
+# from sqlalchemy.future import select
+# from sqlalchemy.ext.asyncio import AsyncSession
 
 @router.get("/stats", response_model=SourceStats)
 async def get_source_stats(
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    total = db.query(func.count(Source.id)).scalar()
-    active = db.query(func.count(Source.id)).filter(
-        Source.is_active == True,
-        Source.status == SourceStatus.ACTIVE
-    ).scalar()
-    disabled = db.query(func.count(Source.id)).filter(
-        Source.is_active == False
-    ).scalar()
-    errors = db.query(func.count(Source.id)).filter(
-        Source.status == SourceStatus.ERROR
-    ).scalar()
+    # Total sources
+    result = await db.execute(select(func.count(Source.id)))
+    total = result.scalar()  # scalar() returns single value
+
+    # Active sources
+    result = await db.execute(
+        select(func.count(Source.id)).where(
+            Source.is_active == True,
+            Source.status == SourceStatus.ACTIVE
+        )
+    )
+    active = result.scalar()
+
+    # Disabled sources
+    result = await db.execute(
+        select(func.count(Source.id)).where(
+            Source.is_active == False
+        )
+    )
+    disabled = result.scalar()
+
+    # Error sources
+    result = await db.execute(
+        select(func.count(Source.id)).where(
+            Source.status == SourceStatus.ERROR
+        )
+    )
+    errors = result.scalar()
 
     return {
         "total_sources": total,
@@ -91,14 +149,41 @@ async def get_source_stats(
         "error_sources": errors
     }
 
+# @router.get("/stats", response_model=SourceStats)
+# async def get_source_stats(
+#         db: Session = Depends(get_db),
+#         current_user: User = Depends(get_current_user)
+# ):
+#     total = db.query(func.count(Source.id)).scalar()
+#     active = db.query(func.count(Source.id)).filter(
+#         Source.is_active == True,
+#         Source.status == SourceStatus.ACTIVE
+#     ).scalar()
+#     disabled = db.query(func.count(Source.id)).filter(
+#         Source.is_active == False
+#     ).scalar()
+#     errors = db.query(func.count(Source.id)).filter(
+#         Source.status == SourceStatus.ERROR
+#     ).scalar()
+
+#     return {
+#         "total_sources": total,
+#         "active_sources": active,
+#         "disabled_sources": disabled,
+#         "error_sources": errors
+#     }
+
 
 @router.get("/{source_id}", response_model=SourceResponse)
 async def get_source(
         source_id: int,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    source = db.query(Source).filter(Source.id == source_id).first()
+    # source = db.query(Source).filter(Source.id == source_id).first()
+    stmt = select(Source).where(Source.id == source_id)
+    result = await db.execute(stmt)
+    source = result.scalar_one_or_none()
 
     if not source:
         raise HTTPException(
@@ -109,14 +194,17 @@ async def get_source(
     return source
 
 
+
 @router.post("/", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
 async def create_source(
         source_data: SourceCreate,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),  # make sure AsyncSession
         current_user: User = Depends(get_current_user)
 ):
     # Check if source with same URL exists
-    existing = db.query(Source).filter(Source.url == source_data.url).first()
+    result = await db.execute(select(Source).where(Source.url == source_data.url))
+    existing = result.scalars().first()
+
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -132,20 +220,52 @@ async def create_source(
 
     source = Source(**source_dict)
     db.add(source)
-    db.commit()
-    db.refresh(source)
+    await db.commit()
+    await db.refresh(source)
 
     return source
+
+
+# @router.post("/", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
+# async def create_source(
+#         source_data: SourceCreate,
+#         db: Session = Depends(get_db),
+#         current_user: User = Depends(get_current_user)
+# ):
+#     # Check if source with same URL exists
+#     existing = db.query(Source).filter(Source.url == source_data.url).first()
+#     if existing:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Source with this URL already exists"
+#         )
+
+#     # Create source
+#     source_dict = source_data.dict(exclude={'password'})
+
+#     # Encrypt password if provided
+#     if source_data.password:
+#         source_dict['encrypted_password'] = encrypt_password(source_data.password)
+
+#     source = Source(**source_dict)
+#     db.add(source)
+#     db.commit()
+#     db.refresh(source)
+
+#     return source
 
 
 @router.patch("/{source_id}", response_model=SourceResponse)
 async def update_source(
         source_id: int,
         source_update: SourceUpdate,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    source = db.query(Source).filter(Source.id == source_id).first()
+    # source = db.query(Source).filter(Source.id == source_id).first()
+    stmt = select(Source).where(Source.id == source_id)
+    result = await db.execute(stmt)
+    source = result.scalar_one_or_none()
 
     if not source:
         raise HTTPException(
@@ -162,8 +282,8 @@ async def update_source(
     for field, value in update_data.items():
         setattr(source, field, value)
 
-    db.commit()
-    db.refresh(source)
+    await db.commit()
+    await db.refresh(source)
 
     return source
 
@@ -171,10 +291,13 @@ async def update_source(
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_source(
         source_id: int,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    source = db.query(Source).filter(Source.id == source_id).first()
+    # source = db.query(Source).filter(Source.id == source_id).first()
+    stmt = select(Source).where(Source.id == source_id)
+    result = await db.execute(stmt)
+    source = result.scalar_one_or_none()
 
     if not source:
         raise HTTPException(
@@ -193,8 +316,8 @@ async def delete_source(
             detail=f"Cannot delete source with {tender_count} associated tenders"
         )
 
-    db.delete(source)
-    db.commit()
+    await db.delete(source)
+    await db.commit()
 
     return None
 
@@ -202,10 +325,13 @@ async def delete_source(
 @router.post("/{source_id}/toggle", response_model=SourceResponse)
 async def toggle_source(
         source_id: int,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    source = db.query(Source).filter(Source.id == source_id).first()
+    # source = db.query(Source).filter(Source.id == source_id).first()
+    stmt = select(Source).where(Source.id == source_id)
+    result = await db.execute(stmt)
+    source = result.scalar_one_or_none()
 
     if not source:
         raise HTTPException(
@@ -219,7 +345,15 @@ async def toggle_source(
     else:
         source.status = SourceStatus.DISABLED
 
-    db.commit()
-    db.refresh(source)
+    await db.commit()
+    await db.refresh(source)
 
+    return source
+
+async def get_source_or_404(db: AsyncSession, source_id: int) -> Source:
+    stmt = select(Source).where(Source.id == source_id)
+    result = await db.execute(stmt)
+    source = result.scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
     return source

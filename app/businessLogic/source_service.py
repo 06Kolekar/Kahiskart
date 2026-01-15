@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.future import select
 from typing import List, Dict, Optional
 import logging
 from datetime import datetime
@@ -16,10 +17,12 @@ logger = logging.getLogger(__name__)
 class SourceService:
 
     @staticmethod
-    def fetch_from_source(db: Session, source_id: int) -> Dict:
+    async def fetch_from_source(db: Session, source_id: int) -> Dict:
 
 
-        source = db.query(Source).filter(Source.id == source_id).first()
+        # source = db.query(Source).filter(Source.id == source_id).first()
+        result = await db.execute(select(Source).filter(Source.id == source_id))
+        source = result.scalars().first()
 
         if not source:
             logger.error(f"Source {source_id} not found")

@@ -3,7 +3,7 @@ from typing import List, Optional
 import re
 import logging
 
-from app.models.keyword import Keyword
+from app.models.keyword import Keyword , KeywordPriority
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,16 @@ class KeywordService:
                 logger.debug(f"Keyword matched: {keyword.keyword}")
 
         # Sort by priority (high first)
-        priority_order = {"high": 0, "medium": 1, "low": 2}
+        # priority_order = {"high": 0, "medium": 1, "low": 2}
+        # matched.sort(key=lambda k: priority_order.get(k.priority.value, 3))
+        priority_order = {
+            KeywordPriority.HIGH.value: 0,
+            KeywordPriority.MEDIUM.value: 1,
+            KeywordPriority.LOW.value: 2,
+        }
+
         matched.sort(key=lambda k: priority_order.get(k.priority.value, 3))
+
 
         return matched
 

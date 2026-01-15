@@ -42,17 +42,37 @@ class Keyword(Base):
     id = Column(Integer, primary_key=True, index=True)
     keyword = Column(String(255), nullable=False, index=True)
 
+    # category = Column(
+    #     Enum(KeywordCategory),
+    #     default=KeywordCategory.OTHER,
+    #     index=True
+    # )
+
+    # priority = Column(
+    #     Enum(KeywordPriority),
+    #     default=KeywordPriority.MEDIUM,
+    #     index=True
+    # )
+    
     category = Column(
-        Enum(KeywordCategory),
+        Enum(
+            KeywordCategory,
+            name="keywordcategory"
+        ),
         default=KeywordCategory.OTHER,
         index=True
     )
 
+
     priority = Column(
-        Enum(KeywordPriority),
+        Enum(
+            KeywordPriority,
+            name="keywordpriority"
+        ),
         default=KeywordPriority.MEDIUM,
         index=True
     )
+
 
     # Matching behavior
     is_case_sensitive = Column(Boolean, default=False)
