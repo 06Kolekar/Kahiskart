@@ -397,10 +397,18 @@ async def reset_password(
     return {"message": "Password reset successful. You can now login with your new password."}
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
+@router.get("/me", response_model=UserResponse, status_code=status.HTTP_200_OK)
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
 
-    return current_user
+    return UserResponse.model_validate(current_user)  # Pydantic v2
+
 
 @router.post("/update-email", response_model=dict)
 async def update_email(

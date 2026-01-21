@@ -6,20 +6,28 @@ import re
 
 class UserBase(BaseModel):
     email: EmailStr
-    full_name: Optional[str] = None
+    full_name: str
 
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
+    confirm_password: str
 
-    @validator('password')
+    @validator("password")
     def password_strength(cls, v):
-        if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not re.search(r'[0-9]', v):
-            raise ValueError('Password must contain at least one number')
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("Password must contain at least one number")
+        return v
+
+    @validator("confirm_password")
+    def passwords_match(cls, v, values):
+        password = values.get("password")
+        if password != v:
+            raise ValueError("Passwords do not match")
         return v
 
 
