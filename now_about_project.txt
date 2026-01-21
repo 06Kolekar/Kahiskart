@@ -581,4 +581,968 @@ Save to MySQL
    ↓
 Power BI reads MySQL
 
-Done bro just give me the description to work on new chat and which file i have to share and scraper_service.py has dummy data not real
+###Done bro just give me the description to work on new chat and which file i have to share and scraper_service.py has dummy data not real
+
+Got you — here is a **clean, simple description + exact files you should share when you start a new chat.**
+You can copy–paste this directly. 👇
+
+---
+
+# ✅ **Project Description (Simple English — brief, clear, backend-focused)**
+
+This is a **Tender Monitoring & Automation System** built with:
+
+* **Backend:** FastAPI + MySQL + SQLAlchemy (Async)
+* **Frontend:** React.js
+* **BI/Analytics:** Power BI (automated export from backend)
+
+### What the system does:
+
+1. **Scraping Layer (Automation)**
+
+* Automatically scrapes tender data from multiple government portals
+* Uses Playwright/automation + PDF parsing
+* Saves cleaned tenders into MySQL
+* Each source (website) is stored as a “Source” record in DB
+
+2. **Core Backend Features (FastAPI)**
+
+* Manage tender sources (add/update/delete)
+* Store login credentials securely (encrypted)
+* Scrape tenders from a source on demand
+* Store tenders with fields like:
+
+  * title
+  * reference_id
+  * deadline
+  * status
+  * source
+  * matched keywords
+
+3. **Keyword Matching System**
+
+* Users define keywords (e.g., “AI”, “IT”, “Construction”)
+* Every scraped tender is checked against these keywords
+* Matched keywords are stored
+* Match counts are updated
+* Alerts can be triggered for high-priority matches
+
+4. **User APIs**
+
+* List tenders
+* View single tender
+* Update tender (PATCH)
+* Filter by:
+
+  * status
+  * source
+  * date range
+
+5. **Power BI Automation**
+
+* Backend provides **Excel export API**
+* Power BI connects to this Excel
+* Dashboards auto-refresh using exported data
+
+6. **Database**
+
+* MySQL stores:
+
+  * sources
+  * tenders
+  * keywords
+  * logs
+  * user data
+
+---
+
+# ✅ **Files you should share in the new chat**
+
+Share these **one by one or as a ZIP**:
+
+### **Must-have core files**
+
+```
+app/main.py
+app/core/database.py
+app/core/config.py
+```
+
+### **Models (very important)**
+
+```
+app/models/source.py
+app/models/tender.py
+app/models/keyword.py
+```
+
+### **Routers (APIs)**
+
+```
+app/routers/scrape_router.py
+app/routers/tenders.py
+app/routers/keywords.py
+app/routers/auth.py
+```
+
+### **Services**
+
+```
+app/services/tender_service.py
+app/services/keyword_service.py
+app/services/notification_service.py
+app/services/scraper_service.py   ← (tell: this has dummy data)
+```
+
+### **Schemas**
+
+```
+app/schemas/tender_schema.py
+app/schemas/keyword_schema.py
+app/schemas/source_schema.py
+```
+
+---
+
+# If you want, say this in new chat:
+
+> “This is a FastAPI + MySQL tender scraping project. scraper_service.py currently returns dummy data. I want real scraping + stable APIs + Excel export + Power BI automation.”
+
+---
+
+If you like, I can also:
+
+* write a **one-page README**
+* or a **diagram architecture**
+* or a **project flow chart**
+
+Just tell me 👍
+*******************************************************************************
+*                                                                             *
+*                                       NEW ARCHITECTURE                      *
+*                                                                             *
+*******************************************************************************
+This is a **very common tender / procurement problem**, and the key point is:
+
+> **Do NOT change your MySQL table every time Excel columns change**
+
+There are **3 proven ORM-friendly designs**, depending on how much structure you need.
+
+---
+
+## ✅ BEST PRACTICE (Recommended):
+
+### **Fixed core columns + Dynamic columns stored as JSON**
+
+This works perfectly with **Python ORM + MySQL** and handles **5 / 10 / 30 columns** easily.
+
+---
+
+### 1️⃣ MySQL Table Design
+
+```sql
+CREATE TABLE tender_data (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tender_id INT NOT NULL,
+    row_no INT NOT NULL,
+    dynamic_data JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+✔ MySQL supports **JSON**
+✔ No schema change needed
+✔ ORM friendly
+✔ Fast enough for large Excel files
+
+---
+
+### 2️⃣ ORM Model (SQLAlchemy Example)
+
+```python
+from sqlalchemy import Column, Integer, JSON, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql import func
+
+Base = declarative_base()
+
+class TenderData(Base):
+    __tablename__ = "tender_data"
+
+    id = Column(Integer, primary_key=True)
+    tender_id = Column(Integer, nullable=False)
+    row_no = Column(Integer, nullable=False)
+    dynamic_data = Column(JSON)
+    created_at = Column(DateTime, server_default=func.now())
+```
+
+---
+
+### 3️⃣ Excel → JSON → DB (Python)
+
+```python
+import pandas as pd
+
+df = pd.read_excel("tender.xlsx")
+
+records = []
+for idx, row in df.iterrows():
+    records.append(
+        TenderData(
+            tender_id=101,
+            row_no=idx + 1,
+            dynamic_data=row.to_dict()
+        )
+    )
+
+session.bulk_save_objects(records)
+session.commit()
+```
+
+✔ Each Excel row becomes **JSON**
+✔ Columns don’t matter anymore
+
+---
+
+### 4️⃣ Query JSON Data (MySQL)
+
+```sql
+SELECT
+  JSON_EXTRACT(dynamic_data, '$."Bid Price"') AS bid_price
+FROM tender_data
+WHERE tender_id = 101;
+```
+
+---
+
+## 🔥 OPTION 2: **Entity-Attribute-Value (EAV) Model**
+
+Use this **only if you need heavy filtering/searching**.
+
+### Table structure
+
+```sql
+tender_row
+- id
+- tender_id
+
+tender_field
+- id
+- name
+
+tender_value
+- row_id
+- field_id
+- value
+```
+
+❌ Complex
+❌ Slow joins
+✔ Strong filtering
+
+---
+
+## 🟡 OPTION 3: **Wide table (NOT recommended)**
+
+* Add 50 nullable columns
+* Waste of space
+* Hard to maintain
+
+❌ Avoid this
+
+---
+
+## 🏆 Final Recommendation (For Tenders)
+
+✔ Excel with unknown columns
+✔ ORM based system
+✔ Different tenders, different formats
+
+👉 **JSON column is the industry standard**
+
+---
+
+## 💡 Extra Tips (Real-World Tender Systems)
+
+### ✔ Keep column mapping table
+
+```sql
+tender_columns
+- tender_id
+- excel_column_name
+- display_name
+- data_type
+```
+
+### ✔ Validate Excel before saving
+
+```python
+required_columns = ["Vendor Name", "Bid Price"]
+
+missing = set(required_columns) - set(df.columns)
+if missing:
+    raise ValueError(f"Missing columns: {missing}")
+```
+
+### ✔ Index JSON for performance
+
+```sql
+CREATE INDEX idx_bid_price 
+ON tender_data ((JSON_EXTRACT(dynamic_data, '$."Bid Price"')));
+```
+
+---
+
+## ✅ When NOT to use JSON
+
+* If every column is fixed forever
+* If you need massive SQL aggregations on every field
+
+---
+
+### 🚀 Summary
+
+| Problem                 | Solution            |
+| ----------------------- | ------------------- |
+| Different Excel columns | JSON column         |
+| ORM compatibility       | SQLAlchemy JSON     |
+| MySQL                   | Native JSON support |
+| Performance             | JSON indexes        |
+
+---
+
+If you want, tell me:
+
+* Which ORM (Django / SQLAlchemy / Peewee)?
+* Excel size (rows)?
+* Do you need reporting / comparison logic?
+
+I can design the **exact schema + import code** for your use case.
+
+Yes — **you CAN search using keywords even if the data is stored in JSON**, but **how well it works depends on how you design it**.
+
+Below is the **correct, production-ready way** to do keyword search on JSON data in MySQL using Python ORM.
+
+---
+
+## ✅ 1️⃣ Simple keyword search (works immediately)
+
+If you just want:
+
+* “Search anywhere in the Excel row”
+* Tender-style keyword filtering
+
+### MySQL query
+
+```sql
+SELECT *
+FROM tender_data
+WHERE JSON_SEARCH(dynamic_data, 'all', '%steel%') IS NOT NULL;
+```
+
+✔ Searches **all keys & values**
+✔ No schema change
+❌ Slower on large data
+
+---
+
+### SQLAlchemy example
+
+```python
+from sqlalchemy import text
+
+keyword = "steel"
+
+query = text("""
+SELECT *
+FROM tender_data
+WHERE JSON_SEARCH(dynamic_data, 'all', :kw) IS NOT NULL
+""")
+
+results = session.execute(query, {"kw": f"%{keyword}%"}).fetchall()
+```
+
+---
+
+## ⚠️ Limitation
+
+* Full table scan
+* Not indexed
+* OK for **small / medium tenders**
+* Not OK for **millions of rows**
+
+---
+
+## 🚀 2️⃣ FAST keyword search (Recommended for real systems)
+
+### 👉 Create a **search_text column**
+
+Store a flattened version of JSON **for searching only**.
+
+---
+
+### Table
+
+```sql
+ALTER TABLE tender_data
+ADD COLUMN search_text LONGTEXT;
+
+CREATE FULLTEXT INDEX idx_search_text
+ON tender_data(search_text);
+```
+
+---
+
+### While saving Excel
+
+```python
+def flatten_json(data: dict) -> str:
+    return " ".join(str(v) for v in data.values() if v)
+
+row_dict = row.to_dict()
+
+search_text = flatten_json(row_dict)
+
+record = TenderData(
+    tender_id=101,
+    row_no=idx + 1,
+    dynamic_data=row_dict,
+    search_text=search_text
+)
+```
+
+---
+
+### Keyword search (FAST 🔥)
+
+```sql
+SELECT *
+FROM tender_data
+WHERE MATCH(search_text) AGAINST ('steel pipe' IN NATURAL LANGUAGE MODE);
+```
+
+✔ Indexed
+✔ Very fast
+✔ Multiple keywords
+✔ Scalable
+
+---
+
+## 🧠 Why this is the BEST approach
+
+| Feature          | JSON_SEARCH | search_text + FULLTEXT |
+| ---------------- | ----------- | ---------------------- |
+| Simple           | ✅           | ✅                      |
+| Fast             | ❌           | ✅                      |
+| Indexed          | ❌           | ✅                      |
+| Production ready | ❌           | ✅                      |
+
+---
+
+## 🔍 3️⃣ Search specific JSON field (Exact match)
+
+If user selects column name:
+
+```sql
+SELECT *
+FROM tender_data
+WHERE JSON_EXTRACT(dynamic_data, '$."Bid Price"') > 100000;
+```
+
+👉 You can index this too:
+
+```sql
+CREATE INDEX idx_bid_price
+ON tender_data ((CAST(JSON_EXTRACT(dynamic_data, '$."Bid Price"') AS DECIMAL(10,2))));
+```
+
+---
+
+## 🟢 4️⃣ Django ORM example (if needed)
+
+```python
+from django.db.models.expressions import RawSQL
+
+TenderData.objects.extra(
+    where=["JSON_SEARCH(dynamic_data, 'all', %s) IS NOT NULL"],
+    params=[f"%{keyword}%"]
+)
+```
+
+---
+
+## ⚠️ Important Tender-System Notes
+
+* **Never rely only on JSON_SEARCH** for large data
+* Use JSON for **storage**
+* Use TEXT + FULLTEXT for **search**
+* Use extracted JSON fields for **filters**
+
+---
+
+## 🏆 Final Architecture (Best)
+
+```
+Excel → JSON (dynamic_data)
+       → search_text (FULLTEXT indexed)
+       → extracted fields (optional, indexed)
+```
+
+---
+
+### ✅ Answer to your question (short)
+
+> **Yes, keyword search works with JSON**,
+> **BUT** for performance you should add a `search_text` column.
+
+---
+
+If you want, tell me:
+
+* MySQL version
+* ORM (Django / SQLAlchemy)
+* Approx rows per tender
+
+I’ll give you **exact optimized queries + models** for your setup.
+
+Got it — here’s **how to implement this cleanly using FastAPI + ORM (SQLAlchemy) + MySQL**, optimized for **dynamic Excel columns + fast keyword search**.
+
+---
+
+## ✅ Recommended Architecture (FastAPI Friendly)
+
+```
+Excel
+ ├── dynamic_data (JSON)        → stores variable columns (5 / 10 / 30)
+ ├── search_text (FULLTEXT)     → fast keyword search
+ └── optional extracted fields → filters / reports
+```
+
+---
+
+## 1️⃣ MySQL Table
+
+```sql
+CREATE TABLE tender_data (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tender_id INT NOT NULL,
+    row_no INT NOT NULL,
+    dynamic_data JSON NOT NULL,
+    search_text LONGTEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FULLTEXT INDEX idx_search (search_text)
+);
+```
+
+---
+
+## 2️⃣ SQLAlchemy Model
+
+```python
+from sqlalchemy import Column, Integer, JSON, Text, DateTime
+from sqlalchemy.sql import func
+from database import Base
+
+class TenderData(Base):
+    __tablename__ = "tender_data"
+
+    id = Column(Integer, primary_key=True)
+    tender_id = Column(Integer, index=True)
+    row_no = Column(Integer)
+    dynamic_data = Column(JSON)
+    search_text = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+```
+
+---
+
+## 3️⃣ Excel Upload Logic (FastAPI)
+
+```python
+import pandas as pd
+from fastapi import UploadFile
+from sqlalchemy.orm import Session
+
+def flatten_json(data: dict) -> str:
+    return " ".join(str(v) for v in data.values() if v is not None)
+
+def save_excel(file: UploadFile, tender_id: int, db: Session):
+    df = pd.read_excel(file.file)
+
+    records = []
+    for idx, row in df.iterrows():
+        row_dict = row.to_dict()
+
+        records.append(
+            TenderData(
+                tender_id=tender_id,
+                row_no=idx + 1,
+                dynamic_data=row_dict,
+                search_text=flatten_json(row_dict)
+            )
+        )
+
+    db.bulk_save_objects(records)
+    db.commit()
+```
+
+---
+
+## 4️⃣ Fast Keyword Search API (FAST 🔥)
+
+```python
+from fastapi import FastAPI, Depends, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+
+app = FastAPI()
+
+@app.get("/tenders/search")
+def search_tender(
+    tender_id: int,
+    q: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    sql = text("""
+        SELECT *
+        FROM tender_data
+        WHERE tender_id = :tender_id
+        AND MATCH(search_text) AGAINST (:q IN NATURAL LANGUAGE MODE)
+    """)
+
+    rows = db.execute(sql, {
+        "tender_id": tender_id,
+        "q": q
+    }).fetchall()
+
+    return rows
+```
+
+✔ Uses FULLTEXT index
+✔ Very fast even with large Excel files
+✔ Works with any column structure
+
+---
+
+## 5️⃣ Search Inside JSON (Optional / Slow)
+
+```python
+@app.get("/tenders/search-json")
+def search_json(
+    keyword: str,
+    db: Session = Depends(get_db)
+):
+    sql = text("""
+        SELECT *
+        FROM tender_data
+        WHERE JSON_SEARCH(dynamic_data, 'all', :kw) IS NOT NULL
+    """)
+
+    return db.execute(sql, {"kw": f"%{keyword}%"}).fetchall()
+```
+
+⚠ Use only for small datasets
+
+---
+
+## 6️⃣ Filter by Specific Column (JSON Key)
+
+```python
+@app.get("/tenders/filter")
+def filter_by_column(
+    column: str,
+    value: str,
+    db: Session = Depends(get_db)
+):
+    sql = text(f"""
+        SELECT *
+        FROM tender_data
+        WHERE JSON_EXTRACT(dynamic_data, '$."{column}"') = :value
+    """)
+
+    return db.execute(sql, {"value": value}).fetchall()
+```
+
+---
+
+## 7️⃣ Why This Works Perfectly with FastAPI
+
+✅ Async-friendly
+✅ ORM-compatible
+✅ No schema change per Excel
+✅ Fast search
+✅ Clean API design
+
+---
+
+## 🏆 Best Practice Summary
+
+| Requirement            | Solution            |
+| ---------------------- | ------------------- |
+| Variable Excel columns | JSON                |
+| Fast keyword search    | FULLTEXT            |
+| FastAPI APIs           | Raw SQL / ORM       |
+| Large tenders          | Indexed search_text |
+
+---
+
+If you want, I can:
+
+* Add **pagination**
+* Add **role-based access**
+* Support **multiple Excel sheets**
+* Add **comparison logic between vendors**
+* Convert this to **async SQLAlchemy**
+
+Just tell me 👍
+********************
+THIS ALL ABOUT MySQL 👆☝️
+********************
+
+This is a **classic near-real-time ingestion problem**.
+Because your Excel updates **every 60 seconds**, the **correct solution is NOT polling inside FastAPI request handlers**.
+
+Below is the **clean, production-safe architecture** and **exact code patterns**.
+
+---
+
+## ✅ Recommended Architecture
+
+```
+Excel Source (updates every 60s)
+        ↓
+Background Scheduler (every 60s)
+        ↓
+Diff / Upsert Logic
+        ↓
+MySQL (FastAPI reads only)
+```
+
+👉 **FastAPI = API layer only**
+👉 **Scheduler = data ingestion**
+
+---
+
+## 1️⃣ Choose ONE Scheduler (Best Options)
+
+### ✅ Option A (BEST): APScheduler (Simple & Stable)
+
+* Runs inside your FastAPI app
+* Perfect for 60-second jobs
+
+```bash
+pip install apscheduler
+```
+
+---
+
+### Option B: Celery + Redis (Heavy, large systems)
+
+Use only if:
+
+* Multiple workers
+* Distributed system
+
+---
+
+## 2️⃣ APScheduler Setup (FastAPI)
+
+### `scheduler.py`
+
+```python
+from apscheduler.schedulers.background import BackgroundScheduler
+
+scheduler = BackgroundScheduler()
+
+def start_scheduler():
+    scheduler.start()
+```
+
+---
+
+## 3️⃣ Job: Read Excel & Update DB (Every 60s)
+
+### Key Rule
+
+⚠ **Never truncate and reinsert**
+⚠ **Use UPSERT (update only changed rows)**
+
+---
+
+### Table Requirement (Unique row key)
+
+Add a hash or unique key per row:
+
+```sql
+ALTER TABLE tender_data
+ADD COLUMN row_hash CHAR(64),
+ADD UNIQUE KEY uq_row_hash (tender_id, row_hash);
+```
+
+---
+
+### Hash function (Detect changes)
+
+```python
+import hashlib
+import json
+
+def generate_hash(row_dict: dict) -> str:
+    row_str = json.dumps(row_dict, sort_keys=True)
+    return hashlib.sha256(row_str.encode()).hexdigest()
+```
+
+---
+
+### Scheduled Job
+
+```python
+import pandas as pd
+from sqlalchemy.orm import Session
+from database import SessionLocal
+from models import TenderData
+
+def flatten_json(data: dict) -> str:
+    return " ".join(str(v) for v in data.values() if v)
+
+def sync_excel(tender_id: int, excel_path: str):
+    db: Session = SessionLocal()
+
+    df = pd.read_excel(excel_path)
+
+    for idx, row in df.iterrows():
+        row_dict = row.to_dict()
+        row_hash = generate_hash(row_dict)
+
+        record = TenderData(
+            tender_id=tender_id,
+            row_no=idx + 1,
+            row_hash=row_hash,
+            dynamic_data=row_dict,
+            search_text=flatten_json(row_dict)
+        )
+
+        db.merge(record)  # UPSERT
+    db.commit()
+    db.close()
+```
+
+---
+
+## 4️⃣ Schedule the Job Every 60 Seconds
+
+### `main.py`
+
+```python
+from fastapi import FastAPI
+from scheduler import scheduler
+from jobs import sync_excel
+
+app = FastAPI()
+
+@app.on_event("startup")
+def start_jobs():
+    scheduler.add_job(
+        sync_excel,
+        "interval",
+        seconds=60,
+        args=[101, "/data/tender.xlsx"]
+    )
+    scheduler.start()
+```
+
+---
+
+## 5️⃣ What Happens Every 60 Seconds?
+
+✔ Reads Excel
+✔ Generates row hash
+✔ Inserts new rows
+✔ Updates changed rows
+✔ Leaves unchanged rows untouched
+
+⚡ **Very fast**
+
+---
+
+## 6️⃣ Handling Deleted Rows (IMPORTANT)
+
+Excel row removed?
+Add a soft-delete flag:
+
+```sql
+ALTER TABLE tender_data ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+```
+
+### Mark all rows inactive before sync
+
+```python
+db.query(TenderData).filter_by(tender_id=tender_id).update(
+    {"is_active": False}
+)
+```
+
+### During sync, set active rows back to true
+
+```python
+record.is_active = True
+```
+
+---
+
+## 7️⃣ Thread Safety (Critical)
+
+✔ Use `BackgroundScheduler`
+✔ Use **new DB session per job**
+✔ Never reuse FastAPI session
+
+---
+
+## 8️⃣ If Excel Is Remote (S3 / FTP / API)
+
+Use:
+
+* File modified time
+* ETag / checksum
+* Skip sync if unchanged
+
+---
+
+## 🏆 Best Practice Summary
+
+| Problem          | Solution       |
+| ---------------- | -------------- |
+| 60s updates      | APScheduler    |
+| Avoid duplicates | row_hash       |
+| Fast update      | UPSERT         |
+| API safety       | background job |
+| Search speed     | FULLTEXT       |
+
+---
+
+## 🚨 Common Mistakes (Avoid These)
+
+❌ Running infinite loops inside FastAPI
+❌ Blocking request threads
+❌ Re-creating tables
+❌ Deleting and reinserting everything
+
+---
+
+### ✅ Final Answer (Short)
+
+> Use **APScheduler** to read Excel every 60 seconds,
+> detect changes using **hash**,
+> and **UPSERT** into MySQL.
+
+---
+
+If you want, I can:
+
+* Convert this to **async**
+* Handle **multiple Excel files**
+* Add **audit history**
+* Add **error recovery**
+
+Just tell me 👍
+

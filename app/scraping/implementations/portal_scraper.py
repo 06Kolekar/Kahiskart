@@ -11,7 +11,7 @@ from app.scraping.base.scraper import BaseScraper
 from app.utils.logger import setup_logger
 from app.utils.encryption import encryption_service
 
-logger = setup_logger()
+logger = setup_logger("portal_scraper", log_file="logs/portal_scraper.log")
 
 
 class PortalScraper(BaseScraper):

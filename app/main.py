@@ -1,3 +1,8 @@
+import sys
+import asyncio
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,9 +12,12 @@ import logging
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.scheduler import scheduler
+# One-Drive
+from app.core.onedrivescheduler import OneDriveScheduler
 
 # Import routers
-from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router
+from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router, onedrive, powerbi
+
 
 # Configure logging
 logging.basicConfig(
@@ -72,7 +80,7 @@ app.include_router(fetch.router, prefix="/api/fetch", tags=["Fetch"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 # Scarpe_Router
 app.include_router(scrape_router.router, prefix="/scrape", tags=["Scraping"])
-
+app.include_router(onedrive.router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/")
 async def root():

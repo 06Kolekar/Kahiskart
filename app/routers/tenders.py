@@ -17,68 +17,76 @@ from io import BytesIO
 from fastapi.responses import StreamingResponse
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import pandas as pd 
+import pandas as pd
 
 router = APIRouter()
 
 
 @router.get("/", response_model=TenderList)
 async def get_tenders(
-        status: Optional[str] = Query(None),
-        source_id: Optional[int] = Query(None),
-        search: Optional[str] = Query(None),
-        date_from: Optional[date] = Query(None),
-        date_to: Optional[date] = Query(None),
-        page: int = Query(1, ge=1),
-        page_size: int = Query(25, ge=1, le=100),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+    status: Optional[str] = Query(None),
+    source_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    query = db.query(Tender).filter(Tender.is_deleted == False)
+    stmt = select(Tender).where(Tender.is_deleted == False)
 
     # Filters
     if status:
-        query = query.filter(Tender.status == status)
+        stmt = stmt.where(Tender.status == status)
 
     if source_id:
-        query = query.filter(Tender.source_id == source_id)
+        stmt = stmt.where(Tender.source_id == source_id)
 
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
+        stmt = stmt.where(
             or_(
                 Tender.title.ilike(search_term),
                 Tender.reference_id.ilike(search_term),
                 Tender.agency_name.ilike(search_term),
-                Tender.description.ilike(search_term)
+                Tender.description.ilike(search_term),
             )
         )
 
     if date_from:
-        query = query.filter(Tender.published_date >= date_from)
+        stmt = stmt.where(Tender.published_date >= date_from)
 
     if date_to:
-        query = query.filter(Tender.published_date <= date_to)
+        stmt = stmt.where(Tender.published_date <= date_to)
 
-    # Count total
-    total = query.count()
+    # Total count
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = await db.scalar(count_stmt)
 
     # Pagination
     offset = (page - 1) * page_size
-    tenders = query.order_by(Tender.created_at.desc()).offset(offset).limit(page_size).all()
+    stmt = (
+        stmt
+        .order_by(Tender.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
 
-    # Add source names
+    result = await db.execute(stmt)
+    tenders = result.scalars().all()
+
     items = []
     for tender in tenders:
         tender_dict = TenderResponse.from_orm(tender).dict()
-        tender_dict['source_name'] = tender.source.name if tender.source else None
+        tender_dict["source_name"] = tender.source.name if tender.source else None
         items.append(TenderResponse(**tender_dict))
 
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": items
+        "items": items,
     }
     
 
