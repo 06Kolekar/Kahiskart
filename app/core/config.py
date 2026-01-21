@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Tender Intel"
     APP_VERSION: str = "1.0.0"
+    # API Configuration
+    API_V1_PREFIX: str = "/api/v1"
     ENVIRONMENT: str = "development"
 
     FRONTEND_URL: str = "http://localhost:3000"
@@ -45,6 +47,22 @@ class Settings(BaseSettings):
     # Scheduler
     SCHEDULER_TIMEZONE: str = "US/Eastern"
     DEFAULT_FETCH_INTERVAL_HOURS: int = 6
+    
+    # OneDrive Configuration
+    ONEDRIVE_SHARE_LINK: str = "https://1drv.ms/x/c/f67fbf1404d040f0/IQBEdJOqUtwbQKqYy7MGZd9WAajrSyGplGbPEZw_xWNrpI0?e=SSvtEX"
+    ONEDRIVE_POLL_INTERVAL: int = 300  # 5 minutes
+    
+    # Microsoft Graph API (Optional - for authenticated access)
+    MICROSOFT_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_TENANT_ID: str = "common"
+    
+    # Processing Configuration
+    BATCH_SIZE: int = 1000  # Process rows in batches
+    MAX_WORKERS: int = 4  # Concurrent processing threads
+    
+    
+    # CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:5173"]
 
     class Config:
         env_file = ".env"

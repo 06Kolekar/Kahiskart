@@ -4,6 +4,7 @@ from app.businessLogic.source_service import SourceService
 from app.businessLogic.notification_service import NotificationService
 from app.businessLogic.change_detection_service import ChangeDetectionService
 from app.businessLogic.scraper_service import ScraperService
+from app.businessLogic.onedrive_service import OneDriveService
 
 __all__ = [
     "TenderService",
@@ -11,5 +12,6 @@ __all__ = [
     "SourceService",
     "NotificationService",
     "ChangeDetectionService",
-    "ScraperService"
+    "ScraperService",
+    "OneDriveService"
 ]
