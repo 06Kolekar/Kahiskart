@@ -12,11 +12,13 @@ import logging
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.scheduler import scheduler
+
+from fastapi.staticfiles import StaticFiles
 # One-Drive
 from app.core.onedrivescheduler import OneDriveScheduler
 
 # Import routers
-from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router, onedrive, powerbi
+from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router, onedrive, powerbi, app_settings
 
 
 # Configure logging
@@ -71,6 +73,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount(
+    "/uploads",
+    StaticFiles(directory=settings.UPLOAD_DIR),
+    name="uploads",
+)
+
+app.mount(
+    "/branding",
+    StaticFiles(directory=settings.BRANDING_UPLOAD_DIR),
+    name="branding"
+)
+
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(tenders.router, prefix="/api/tenders", tags=["Tenders"])
@@ -81,6 +95,8 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["Not
 # Scarpe_Router
 app.include_router(scrape_router.router, prefix="/scrape", tags=["Scraping"])
 app.include_router(onedrive.router, prefix=settings.API_V1_PREFIX)
+
+app.include_router(app_settings.router)
 
 @app.get("/")
 async def root():

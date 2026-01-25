@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-
+from sqlalchemy import func
 from app.core.database import get_db
 from app.models.keyword import Keyword, KeywordCategory, KeywordPriority
 from app.models.user import User
@@ -16,26 +16,24 @@ router = APIRouter()
 
 @router.get("/", response_model=KeywordList)
 async def get_keywords(
-        search: Optional[str] = Query(None),
-        category: Optional[KeywordCategory] = Query(None),
-        priority: Optional[KeywordPriority] = Query(None),
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+
+    #  Filters
+    search: Optional[str] = Query(None),
+    category: Optional[KeywordCategory] = Query(None),
+    priority: Optional[KeywordPriority] = Query(None),
+
+    #  Pagination
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
+
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    # query = db.query(Keyword).filter(Keyword.is_active == True)
+
+    # Base query (only active)
     stmt = select(Keyword).where(Keyword.is_active.is_(True))
 
-    # if search:
-    #     query = query.filter(Keyword.keyword.ilike(f"%{search}%"))
-
-    # if category:
-    #     query = query.filter(Keyword.category == category)
-
-    # if priority:
-    #     query = query.filter(Keyword.priority == priority)
-
-    # keywords = query.order_by(Keyword.created_at.desc()).all()
-    
+    #  Apply filters
     if search:
         stmt = stmt.where(Keyword.keyword.ilike(f"%{search}%"))
 
@@ -45,12 +43,33 @@ async def get_keywords(
     if priority:
         stmt = stmt.where(Keyword.priority == priority)
 
-    stmt = stmt.order_by(Keyword.created_at.desc())
+    #  Count (for pagination)
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar()
+
+    #  Pagination
+    offset = (page - 1) * size
+
+    stmt = (
+        stmt
+        .order_by(Keyword.created_at.desc())
+        .offset(offset)
+        .limit(size)
+    )
+
+    # ▶ Fetch data
     result = await db.execute(stmt)
     keywords = result.scalars().all()
 
+    pages = (total + size - 1) // size  # ceil
+
     return {
-        "total": len(keywords),
+        "page": page,
+        "size": size,
+        "total": total,
+        "pages": pages,
         "items": keywords
     }
 

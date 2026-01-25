@@ -1,9 +1,12 @@
-from app.models.user import User
-from app.models.tender import Tender
-from app.models.keyword import Keyword
-from app.models.source import Source
-from app.models.fetch_log import FetchLog
-from app.models.notification import Notification
+from .user import User
+from .tender import Tender
+from .keyword import Keyword
+from .source import Source
+from .fetch_log import FetchLog
+from .notification import Notification
+from .refresh_token import RefreshToken
+from .app_settings import AppSettings
+
 
 __all__ = [
     "User",
@@ -12,4 +15,6 @@ __all__ = [
     "Source",
     "FetchLog",
     "Notification",
+    "RefreshToken",
+    "AppSettings"
 ]

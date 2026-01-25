@@ -41,35 +41,76 @@ def decrypt_password(encrypted: str) -> str:
 
 @router.get("/", response_model=SourceList)
 async def get_sources(
-        search: Optional[str] = Query(None),
-        status: Optional[str] = Query(None),
-        db: AsyncSession = Depends(get_db),  # AsyncSession
-        current_user: User = Depends(get_current_user)
+
+    #  Filters
+    search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+
+    #  Pagination
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
+
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+
     stmt = select(Source)
 
+    #  Apply filters
     if search:
         stmt = stmt.where(Source.name.ilike(f"%{search}%"))
 
     if status:
         stmt = stmt.where(Source.status == status)
 
-    stmt = stmt.order_by(Source.name)
+    #  Count query
+    count_stmt = select(func.count()).select_from(stmt.subquery())
 
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar()
+
+    #  Pagination
+    offset = (page - 1) * size
+
+    stmt = (
+        stmt
+        .order_by(Source.name)
+        .offset(offset)
+        .limit(size)
+    )
+
+    # ▶ Fetch paginated data
     result = await db.execute(stmt)
-    sources = result.scalars().all()  # list of Source objects
+    sources = result.scalars().all()
 
-    # Calculate stats
-    total = len(sources)
-    active = sum(1 for s in sources if s.is_active and s.status == SourceStatus.ACTIVE)
-    disabled = sum(1 for s in sources if not s.is_active or s.status == SourceStatus.DISABLED)
-    errors = sum(1 for s in sources if s.status == SourceStatus.ERROR)
+    #  Stats (optional, based on filtered data)
+    active = sum(
+        1 for s in sources
+        if s.is_active and s.status == SourceStatus.ACTIVE
+    )
+
+    disabled = sum(
+        1 for s in sources
+        if not s.is_active or s.status == SourceStatus.DISABLED
+    )
+
+    errors = sum(
+        1 for s in sources
+        if s.status == SourceStatus.ERROR
+    )
+
+    pages = (total + size - 1) // size  # ceil division
 
     return {
+        "page": page,
+        "size": size,
         "total": total,
+        "pages": pages,
+
         "active": active,
         "disabled": disabled,
         "errors": errors,
+
         "items": sources
     }
 

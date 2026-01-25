@@ -31,11 +31,21 @@ from app.schemas.user_schema import (
     ResendVerificationRequest,
     UpdateEmailRequest,
     UpdatePasswordRequest,
+    UserUpdateRequest,
 )
 
 from app.notifications.email_sender import (
     send_verification_email, send_password_reset_otp
 )
+
+from app.utils.file_upload import (
+    validate_image,
+    save_upload_file,
+    delete_old_profile_picture,
+    build_profile_url
+)
+
+from fastapi import UploadFile, File
 
 router = APIRouter()
 
@@ -407,7 +417,131 @@ async def get_current_user_info(
             detail="Unauthorized",
         )
 
-    return UserResponse.model_validate(current_user)  # Pydantic v2
+    user_data = UserResponse.model_validate(current_user)
+
+
+    user_data.profile_picture = build_profile_url(
+        current_user.profile_picture
+    )
+
+    return user_data
+
+
+
+@router.patch("/me", response_model=UserResponse, status_code=status.HTTP_200_OK)
+async def update_current_user_info(
+        user_update: UserUpdateRequest,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+):
+    """Update user's full name and phone number"""
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+
+    # Update only the fields that were provided
+    if user_update.full_name is not None:
+        if len(user_update.full_name.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Full name cannot be empty"
+            )
+        current_user.full_name = user_update.full_name.strip()
+
+    if user_update.phone_number is not None:
+        # Handle empty string as None
+        if user_update.phone_number and len(user_update.phone_number.strip()) > 0:
+            current_user.phone_number = user_update.phone_number.strip()
+        else:
+            current_user.phone_number = None
+
+    try:
+        await db.commit()
+        await db.refresh(current_user)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user information"
+        )
+
+    return UserResponse.model_validate(current_user)
+
+@router.post("/me/profile-picture", response_model=UserResponse)
+async def upload_profile_picture(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+
+    # IMPORTANT: await async functions
+    await validate_image(file)
+
+    try:
+        # Delete old image
+        if current_user.profile_picture:
+            delete_old_profile_picture(current_user.profile_picture)
+
+        # Save new image
+        filename = await save_upload_file(file, current_user.id)
+
+        # Update DB
+        current_user.profile_picture = filename
+
+        await db.commit()
+        await db.refresh(current_user)
+
+        return UserResponse.model_validate(current_user)
+
+    except Exception as e:
+
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload profile picture: {str(e)}"
+        )
+
+
+@router.delete("/me/profile-picture", response_model=UserResponse)
+async def delete_profile_picture(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+
+    if not current_user:
+        raise HTTPException(401, "Unauthorized")
+
+    if not current_user.profile_picture:
+        raise HTTPException(404, "No profile picture")
+
+    try:
+
+        delete_old_profile_picture(current_user.profile_picture)
+
+        current_user.profile_picture = None
+
+        await db.commit()
+        await db.refresh(current_user)
+
+        return UserResponse.model_validate(current_user)
+
+    except Exception as e:
+
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete profile picture: {str(e)}"
+        )
 
 
 @router.post("/update-email", response_model=dict)
@@ -420,6 +554,10 @@ async def update_email(
     # Verify password
     if not verify_password(data.current_password, current_user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid password")
+
+    # Check if new email is same as current
+    if data.new_email == current_user.email:
+        raise HTTPException(status_code=400, detail="New email is the same as current email")
 
     # Check email uniqueness
     result = await db.execute(
@@ -468,8 +606,12 @@ async def update_password(
 
     # Prevent password reuse
     if verify_password(data.new_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="New password must be different")
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from current password"
+        )
 
+    # Update password
     current_user.hashed_password = get_password_hash(data.new_password)
     await db.commit()
 

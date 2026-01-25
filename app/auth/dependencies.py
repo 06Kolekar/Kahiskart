@@ -82,7 +82,7 @@ async def get_current_superuser(
     if not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
+            detail="Only Admin can perform this actions"
         )
 
     return current_user

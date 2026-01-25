@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # Processing Configuration
     BATCH_SIZE: int = 1000  # Process rows in batches
     MAX_WORKERS: int = 4  # Concurrent processing threads
+
+    UPLOAD_DIR: str
+    BRANDING_UPLOAD_DIR: str
+    MAX_UPLOAD_SIZE: int = 5_242_880
+    BACKEND_URL: str
     
     
     # CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:5173"]

@@ -10,7 +10,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    full_name = Column(String(255))
+    full_name = Column(String(255), nullable=False)
+    phone_number = Column(String(20), nullable=True, unique=True)
+    profile_picture = Column(String(255), nullable=True)
 
     # Email Verification
     is_verified = Column(Boolean, default=False)
