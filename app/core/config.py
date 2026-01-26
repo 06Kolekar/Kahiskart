@@ -5,8 +5,7 @@ from typing import Optional
 class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Tender Intel"
-    APP_VERSION: str = "1.0.0"
-    # API Configuration
+    APP_VERSION: str = "1.0.0"# API Configuration
     API_V1_PREFIX: str = "/api/v1"
     ENVIRONMENT: str = "development"
 
@@ -49,7 +48,7 @@ class Settings(BaseSettings):
     DEFAULT_FETCH_INTERVAL_HOURS: int = 6
     
     # OneDrive Configuration
-    ONEDRIVE_SHARE_LINK: str = "https://1drv.ms/x/c/f67fbf1404d040f0/IQBEdJOqUtwbQKqYy7MGZd9WAajrSyGplGbPEZw_xWNrpI0?e=SSvtEX"
+    ONEDRIVE_SHARE_LINK: str = "https://1drv.ms/x/c/f67fbf1404d040f0/IQBEdJOqUtwbQKqYy7MGZd9WAT6A-qkRAi8ZDzKdObHRLBs?e=s3r0ci"
     ONEDRIVE_POLL_INTERVAL: int = 300  # 5 minutes
     
     # Microsoft Graph API (Optional - for authenticated access)

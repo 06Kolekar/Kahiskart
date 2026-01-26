@@ -1,9 +1,20 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    Enum,
+    BigInteger,
+    Index
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
 import enum
-
+from sqlalchemy.dialects.mysql import BIGINT
 
 class NotificationType(str, enum.Enum):
     NEW_TENDER = "new_tender"
@@ -21,40 +32,77 @@ class NotificationChannel(str, enum.Enum):
 class Notification(Base):
     __tablename__ = "notifications"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
 
-    # User Reference
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # --------------------
+    # Ownership
+    # --------------------
+    user_id = Column(
+        BIGINT(unsigned=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
 
-    # Tender Reference (optional)
-    tender_id = Column(Integer, ForeignKey("tenders.id"))
+    tender_id = Column(
+        BigInteger,
+        ForeignKey("tenders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
 
+    # --------------------
     # Notification Details
+    # --------------------
     type = Column(Enum(NotificationType), nullable=False, index=True)
     channel = Column(Enum(NotificationChannel), default=NotificationChannel.BOTH)
 
     title = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
 
+    # --------------------
     # Status
-    is_read = Column(Boolean, default=False, index=True)
-    is_sent = Column(Boolean, default=False)
+    # --------------------
+    is_read = Column(Boolean, default=False, nullable=False, index=True)
+    is_sent = Column(Boolean, default=False, nullable=False)
 
-    # Delivery Status
     email_sent = Column(Boolean, default=False)
     desktop_sent = Column(Boolean, default=False)
-    sent_at = Column(DateTime)
 
-    # Error Tracking
-    error_message = Column(Text)
-    retry_count = Column(Integer, default=0)
+    sent_at = Column(DateTime, nullable=True)
 
+    # --------------------
+    # Error / Retry
+    # --------------------
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0, nullable=False)
+
+    # --------------------
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    # --------------------
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
+    )
 
+    # --------------------
     # Relationships
+    # --------------------
     user = relationship("User", back_populates="notifications")
     tender = relationship("Tender", back_populates="notifications")
 
+    __table_args__ = (
+        Index("idx_user_unread", "user_id", "is_read"),
+        Index("idx_type_created", "type", "created_at"),
+    )
+
     def __repr__(self):
-        return f"<Notification {self.type} - {self.title}>"
+        return (
+            f"<Notification "
+            f"id={self.id} "
+            f"type={self.type} "
+            f"user_id={self.user_id} "
+            f"is_read={self.is_read}>"
+        )

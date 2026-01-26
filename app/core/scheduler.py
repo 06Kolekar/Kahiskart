@@ -4,6 +4,8 @@ from app.core.config import settings
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal
+from app.businessLogic.excel_processor import ExcelProcessor
+from app.businessLogic.onedrive_service import OneDriveService
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,40 @@ async def keyword_matching_job():
         except Exception as e:
             logger.error(f"Error in keyword matching job: {str(e)}")
 
+# --------------------------------------------------
+# EXCEL INGESTION (ONEDRIVE)
+# --------------------------------------------------
+async def run_excel_ingestion():
+    logger.info("Running Excel ingestion...")
+
+    async with AsyncSessionLocal() as db:
+        try:
+            onedrive = OneDriveService()
+
+            result = await onedrive.download_excel(
+                settings.ONEDRIVE_SHARE_LINK
+            )
+
+            if not result:
+                logger.warning("No Excel file downloaded")
+                return
+
+            processor = ExcelProcessor(db)
+
+            await processor.process_excel(
+                file_content=result["content"],
+                file_name=result["file_name"],
+                file_hash=result["file_hash"],
+                etag=result["etag"],
+                last_modified=result["last_modified"],
+            )
+
+            logger.info("Excel ingestion completed successfully")
+
+        except Exception:
+            await db.rollback()
+            logger.exception("Excel ingestion failed")
+            raise
 
 # Add jobs to scheduler
 scheduler.add_job(
@@ -51,4 +87,9 @@ scheduler.add_job(
     replace_existing=True
 )
 
-
+scheduler.add_job(
+    run_excel_ingestion,
+    CronTrigger(minute="*/5"),  # Every 5 minutes
+    id="excel_ingestion",
+    replace_existing=True,
+)

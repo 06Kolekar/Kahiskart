@@ -2,12 +2,12 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
+from .base_ID_Mixin import BigIntPKMixin
 
 
-class User(Base):
+class User(BigIntPKMixin, Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255))
@@ -32,7 +32,12 @@ class User(Base):
     last_login = Column(DateTime, nullable=True)
 
     # Relationships
-    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship(
+        "Notification",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
     refresh_tokens = relationship(
         "RefreshToken",
         back_populates="user",
@@ -40,4 +45,4 @@ class User(Base):
     )
 
     def __repr__(self):
-        return f"<User {self.email}>"
+        return f"<User id={self.id} email={self.email}>"

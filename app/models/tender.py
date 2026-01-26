@@ -1,85 +1,66 @@
+from sqlalchemy import (
+    Column, String, Text, Date, DateTime,
+    BigInteger, Enum, DECIMAL, ForeignKey, Index
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Boolean,
-    DateTime,
-    Date,
-    Text,
-    ForeignKey,
-    JSON,
-)
-
 
 
 class Tender(Base):
     __tablename__ = "tenders"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
 
-    # Basic Information
-    title = Column(String(500), nullable=False, index=True)
-    reference_id = Column(String(255), unique=True, index=True, nullable=False)
+    # Source info
+    source_id = Column(BigInteger, ForeignKey("sources.id"), nullable=False)
+    source_name = Column(String(100), nullable=False)
+
+    # Core fields (common across most portals)
+    title = Column(Text, nullable=False)
     description = Column(Text)
 
-    # Agency & Location
-    agency_name = Column(String(255), index=True)
-    agency_location = Column(String(255))
+    published_date = Column(Date)
+    closing_date = Column(Date)
 
-    # Dates
-    published_date = Column(Date, index=True)
-    deadline_date = Column(Date, index=True)
+    tender_value = Column(DECIMAL(18, 2))
+    currency = Column(String(10))
 
-    # Source Information
-    source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
-    source_url = Column(String(1000))
+    organization = Column(String(255))
+    location = Column(String(255))
 
-    # Status
-    status = Column(String(50), default="new", index=True)
+    tender_url = Column(Text, nullable=False)
+    document_url = Column(Text)
 
-    # Attachments
-    attachments = Column(JSON)
+    status = Column(
+        Enum(TenderStatus),
+        default=TenderStatus.UNKNOWN,
+        index=True
+    )
 
-    # Change Detection
-    content_hash = Column(String(64), index=True)
-    version = Column(Integer, default=1)
+    # De-duplication & tracking
+    checksum = Column(String(64), unique=True, index=True)
+    scraped_at = Column(DateTime, default=datetime.utcnow)
 
-    # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    # --------------------
-    # RELATIONSHIPS
-    # --------------------
-    source = relationship("Source", back_populates="tenders")
-
-    notifications = relationship(
-        "Notification",
+    # Relationships
+    attributes = relationship(
+        "TenderAttribute",
         back_populates="tender",
         cascade="all, delete-orphan"
     )
 
-    keyword_matches = relationship(
-        "TenderKeywordMatch",
+    raw_data = relationship(
+        "TenderRawData",
         back_populates="tender",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        uselist=False
+    )
+
+    __table_args__ = (
+        Index("idx_tender_dates", "published_date", "closing_date"),
     )
 
     def __repr__(self):
-        return f"<Tender {self.reference_id}: {self.title[:50]}>"
-
-    @property
-    def days_until_deadline(self):
-        if self.deadline_date:
-            return (self.deadline_date - datetime.utcnow().date()).days
-        return None
-
-    @property
-    def is_expired(self):
-        if self.deadline_date:
-            return self.deadline_date < datetime.utcnow().date()
-        return False
+        return f"<Tender {self.title[:50]}>"

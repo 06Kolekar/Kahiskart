@@ -5,17 +5,14 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
-    ForeignKey
+    BigInteger,
+    Index
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
 import enum
 
-
-# ---------------------------
-# ENUMS
-# ---------------------------
 
 class KeywordPriority(str, enum.Enum):
     HIGH = "high"
@@ -32,103 +29,53 @@ class KeywordCategory(str, enum.Enum):
     OTHER = "Other"
 
 
-# ---------------------------
-# KEYWORD MODEL
-# ---------------------------
-
 class Keyword(Base):
     __tablename__ = "keywords"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
     keyword = Column(String(255), nullable=False, index=True)
 
-    # category = Column(
-    #     Enum(KeywordCategory),
-    #     default=KeywordCategory.OTHER,
-    #     index=True
-    # )
-
-    # priority = Column(
-    #     Enum(KeywordPriority),
-    #     default=KeywordPriority.MEDIUM,
-    #     index=True
-    # )
-    
     category = Column(
-        Enum(
-            KeywordCategory,
-            name="keywordcategory"
-        ),
+        Enum(KeywordCategory, name="keywordcategory"),
         default=KeywordCategory.OTHER,
+        nullable=False,
         index=True
     )
-
 
     priority = Column(
-        Enum(
-            KeywordPriority,
-            name="keywordpriority"
-        ),
+        Enum(KeywordPriority, name="keywordpriority"),
         default=KeywordPriority.MEDIUM,
+        nullable=False,
         index=True
     )
 
+    is_case_sensitive = Column(Boolean, default=False, nullable=False)
+    match_whole_word = Column(Boolean, default=False, nullable=False)
 
-    # Matching behavior
-    is_case_sensitive = Column(Boolean, default=False)
-    match_whole_word = Column(Boolean, default=False)
+    enable_alerts = Column(Boolean, default=True, nullable=False)
 
-    # Notification settings
-    enable_alerts = Column(Boolean, default=True)
-
-    # Statistics
-    match_count = Column(Integer, default=0)
+    match_count = Column(Integer, default=0, nullable=False)
     last_match_date = Column(DateTime)
 
-    # Metadata
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime,
         default=datetime.utcnow,
-        onupdate=datetime.utcnow
+        onupdate=datetime.utcnow,
+        nullable=False
     )
 
-    # Relationships
     tender_matches = relationship(
         "TenderKeywordMatch",
         back_populates="keyword",
         cascade="all, delete-orphan"
     )
 
+    __table_args__ = (
+        Index("idx_keyword_category_priority", "category", "priority"),
+    )
+
     def __repr__(self):
-        return f"<Keyword {self.keyword} ({self.category})>"
-
-
-# ---------------------------
-# TENDER ↔ KEYWORD MATCH TABLE
-# ---------------------------
-
-class TenderKeywordMatch(Base):
-    __tablename__ = "tender_keyword_matches"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    tender_id = Column(
-        Integer,
-        ForeignKey("tenders.id", ondelete="CASCADE"),
-        index=True
-    )
-
-    keyword_id = Column(
-        Integer,
-        ForeignKey("keywords.id", ondelete="CASCADE"),
-        index=True
-    )
-
-    match_location = Column(String(50))  # title / description / document
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationships
-    keyword = relationship("Keyword", back_populates="tender_matches")
-    tender = relationship("Tender", back_populates="keyword_matches")
+        return f"<Keyword id={self.id} keyword='{self.keyword}'>"
