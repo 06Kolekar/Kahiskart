@@ -6,6 +6,7 @@ import logging
 
 from app.models.source import Source
 from app.core.config import settings
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +15,32 @@ class SessionManager:
 
 
     _sessions: Dict[int, requests.Session] = {}
+    _sessions = {}
+    _timestamps = {}
+    TTL = 1800  # 30 minutes
 
+    # @classmethod
+    # def get_session(cls, source: Source) -> requests.Session:
+
+
+    #     if source.id not in cls._sessions:
+    #         cls._sessions[source.id] = cls.create_session()
+
+    #     return cls._sessions[source.id]
     @classmethod
-    def get_session(cls, source: Source) -> requests.Session:
+    def get_session(cls, source):
+        now = time.time()
 
-
-        if source.id not in cls._sessions:
+        if (
+            source.id not in cls._sessions or
+            now - cls._timestamps.get(source.id, 0) > cls.TTL
+        ):
+            cls.close_session(source.id)
             cls._sessions[source.id] = cls.create_session()
+            cls._timestamps[source.id] = now
 
         return cls._sessions[source.id]
+
 
     @classmethod
     def create_session(cls) -> requests.Session:

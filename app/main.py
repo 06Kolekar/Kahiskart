@@ -13,10 +13,11 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.scheduler import scheduler
 # One-Drive
-from app.core.onedrivescheduler import OneDriveScheduler
+# from app.core.onedrivescheduler import OneDriveScheduler
+from app.core.excel_scheduler import start_excel_scheduler, stop_excel_scheduler
 
 # Import routers
-from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router, onedrive, powerbi
+from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router, source_scraping
 
 
 # Configure logging
@@ -52,6 +53,34 @@ async def lifespan(app: FastAPI):
 
     await engine.dispose()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting Tender Intel System...")
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    logger.info("Database tables created/verified")
+
+    if not scheduler.running:
+        scheduler.start()
+        logger.info("Scheduler started")
+
+    start_excel_scheduler()   # THIS LINE
+    logger.info("Excel scheduler started")
+
+    yield
+
+    logger.info("Shutting down Tender Intel System...")
+
+    stop_excel_scheduler()    # THIS LINE
+
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("Scheduler stopped")
+
+    await engine.dispose()
+
 
 
 app = FastAPI(
@@ -80,7 +109,9 @@ app.include_router(fetch.router, prefix="/api/fetch", tags=["Fetch"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 # Scarpe_Router
 app.include_router(scrape_router.router, prefix="/scrape", tags=["Scraping"])
-app.include_router(onedrive.router, prefix=settings.API_V1_PREFIX)
+# app.include_router(onedrive.router, prefix=settings.API_V1_PREFIX)
+app.include_router(source_scraping.router)
+
 
 @app.get("/")
 async def root():

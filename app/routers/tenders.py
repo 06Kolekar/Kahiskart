@@ -49,7 +49,7 @@ async def get_tenders(
             or_(
                 Tender.title.ilike(search_term),
                 Tender.reference_id.ilike(search_term),
-                Tender.agency_name.ilike(search_term),
+                # Tender.agency_name.ilike(search_term),
                 Tender.description.ilike(search_term),
             )
         )

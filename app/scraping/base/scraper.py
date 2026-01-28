@@ -50,3 +50,10 @@ class BaseScraper(ABC):
             if not tender.get(field):
                 return False
         return True
+
+    @abstractmethod
+    def fetch(self):
+        """
+        Returns a list of tender dicts
+        """
+        pass

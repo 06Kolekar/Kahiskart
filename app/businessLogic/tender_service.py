@@ -10,6 +10,7 @@ from app.businessLogic.keyword_service import KeywordService
 from app.businessLogic.notification_service import NotificationService
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from app.models.tender_field import TenderField
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,51 @@ class TenderService:
         logger.info(f"Keyword matching completed: {matched_count}/{len(tenders)} tenders matched")
 
         return matched_count
+    
+    def save_tender(db: Session, source_id: int, data: dict):
+        core = data["core"]
+        fields = data["fields"]
+
+        tender = (
+            db.query(Tender)
+            .filter(
+                Tender.source_id == source_id,
+                Tender.external_id == core["external_id"]
+            )
+            .first()
+        )
+
+        if tender:
+            if tender.hash_signature == core["hash_signature"]:
+                return tender  # no change
+
+            tender.title = core["title"]
+            tender.description = core["description"]
+            tender.hash_signature = core["hash_signature"]
+        else:
+            tender = Tender(
+                source_id=source_id,
+                **core
+            )
+            db.add(tender)
+            db.flush()
+
+        # delete old fields
+        db.query(TenderField).filter(
+            TenderField.tender_id == tender.id
+        ).delete()
+
+        for key, value in fields.items():
+            db.add(
+                TenderField(
+                    tender_id=tender.id,
+                    field_name=key,
+                    field_value=value
+                )
+            )
+
+        db.commit()
+        return tender
 
 
 def run_keyword_matching(db: Session):

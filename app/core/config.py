@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from typing import ClassVar
 
 
 class Settings(BaseSettings):
@@ -49,8 +50,14 @@ class Settings(BaseSettings):
     DEFAULT_FETCH_INTERVAL_HOURS: int = 6
     
     # OneDrive Configuration
-    ONEDRIVE_SHARE_LINK: str = "https://1drv.ms/x/c/f67fbf1404d040f0/IQBEdJOqUtwbQKqYy7MGZd9WAajrSyGplGbPEZw_xWNrpI0?e=SSvtEX"
-    ONEDRIVE_POLL_INTERVAL: int = 300  # 5 minutes
+    # ONEDRIVE_SHARE_LINK: str = "https://1drv.ms/x/c/f67fbf1404d040f0/IQBEdJOqUtwbQKqYy7MGZd9WAajrSyGplGbPEZw_xWNrpI0?e=SSvtEX"
+    # ONEDRIVE_POLL_INTERVAL: int = 1800  # 5 minutes
+    LOCAL_EXCEL_PATH: ClassVar[str] = (
+        "C:/Users/abhis/OneDrive/Documents/"
+        "WebArcligthIntern/PYTHON/Kahiskart/data/VendorLinkFile.xlsx"
+    )
+    EXCEL_POLL_INTERVAL : int = 1800  # 30 minutes
+
     
     # Microsoft Graph API (Optional - for authenticated access)
     MICROSOFT_CLIENT_ID: Optional[str] = None

@@ -4,6 +4,8 @@ from app.models.keyword import Keyword
 from app.models.source import Source
 from app.models.fetch_log import FetchLog
 from app.models.notification import Notification
+from app.models.tender_document import TenderDocument
+from app.models.tender_field import TenderField
 
 __all__ = [
     "User",
@@ -12,4 +14,6 @@ __all__ = [
     "Source",
     "FetchLog",
     "Notification",
+    "TenderDocument",
+    "TenderField",
 ]
