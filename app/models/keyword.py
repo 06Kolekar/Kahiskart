@@ -24,6 +24,7 @@ class KeywordPriority(str, enum.Enum):
 
 
 class KeywordCategory(str, enum.Enum):
+    """Predefined categories for UI dropdowns"""
     INFORMATION_TECHNOLOGY = "Information Technology"
     CONSTRUCTION = "Construction"
     HEALTHCARE = "Healthcare"
@@ -42,27 +43,13 @@ class Keyword(Base):
     id = Column(Integer, primary_key=True, index=True)
     keyword = Column(String(255), nullable=False, index=True)
 
-    # category = Column(
-    #     Enum(KeywordCategory),
-    #     default=KeywordCategory.OTHER,
-    #     index=True
-    # )
-
-    # priority = Column(
-    #     Enum(KeywordPriority),
-    #     default=KeywordPriority.MEDIUM,
-    #     index=True
-    # )
-    
+    # Changed to String to allow custom categories
     category = Column(
-        Enum(
-            KeywordCategory,
-            name="keywordcategory"
-        ),
-        default=KeywordCategory.OTHER,
-        index=True
+        String(100),
+        default="Other",
+        index=True,
+        nullable=False
     )
-
 
     priority = Column(
         Enum(
@@ -72,7 +59,6 @@ class Keyword(Base):
         default=KeywordPriority.MEDIUM,
         index=True
     )
-
 
     # Matching behavior
     is_case_sensitive = Column(Boolean, default=False)
@@ -103,6 +89,11 @@ class Keyword(Base):
 
     def __repr__(self):
         return f"<Keyword {self.keyword} ({self.category})>"
+
+    @classmethod
+    def get_predefined_categories(cls):
+        """Returns list of predefined categories for UI"""
+        return [cat.value for cat in KeywordCategory]
 
 
 # ---------------------------

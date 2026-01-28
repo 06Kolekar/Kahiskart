@@ -14,44 +14,68 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter()
 
 
+@router.get("/categories")
+async def get_categories(
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """
+    Get all available categories (predefined + custom ones from database)
+    """
+    # Get predefined categories
+    predefined = Keyword.get_predefined_categories()
+
+    # Get unique custom categories from database
+    stmt = select(Keyword.category).where(
+        Keyword.is_active == True
+    ).distinct()
+
+    result = await db.execute(stmt)
+    db_categories = result.scalars().all()
+
+    # Combine and remove duplicates
+    all_categories = list(set(predefined + [cat for cat in db_categories if cat]))
+
+    return {
+        "predefined": predefined,
+        "all": sorted(all_categories)
+    }
+
+
 @router.get("/", response_model=KeywordList)
 async def get_keywords(
+        # Filters
+        search: Optional[str] = Query(None),
+        category: Optional[str] = Query(None),  # Changed from KeywordCategory enum to str
+        priority: Optional[KeywordPriority] = Query(None),
 
-    #  Filters
-    search: Optional[str] = Query(None),
-    category: Optional[KeywordCategory] = Query(None),
-    priority: Optional[KeywordPriority] = Query(None),
+        # Pagination
+        page: int = Query(1, ge=1),
+        size: int = Query(10, ge=1, le=100),
 
-    #  Pagination
-    page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1, le=100),
-
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user),
 ):
-
     # Base query (only active)
     stmt = select(Keyword).where(Keyword.is_active.is_(True))
 
-    #  Apply filters
+    # Apply filters
     if search:
         stmt = stmt.where(Keyword.keyword.ilike(f"%{search}%"))
 
     if category:
-        stmt = stmt.where(Keyword.category == category)
+        stmt = stmt.where(Keyword.category == category)  # Now accepts any string
 
     if priority:
         stmt = stmt.where(Keyword.priority == priority)
 
-    #  Count (for pagination)
+    # Count (for pagination)
     count_stmt = select(func.count()).select_from(stmt.subquery())
-
     total_result = await db.execute(count_stmt)
     total = total_result.scalar()
 
-    #  Pagination
+    # Pagination
     offset = (page - 1) * size
-
     stmt = (
         stmt
         .order_by(Keyword.created_at.desc())
@@ -59,7 +83,7 @@ async def get_keywords(
         .limit(size)
     )
 
-    # ▶ Fetch data
+    # Fetch data
     result = await db.execute(stmt)
     keywords = result.scalars().all()
 
@@ -80,7 +104,6 @@ async def get_keyword(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    # keyword = db.query(Keyword).filter(Keyword.id == keyword_id).first()
     result = await db.execute(
         select(Keyword).where(Keyword.id == keyword_id)
     )
@@ -102,9 +125,6 @@ async def create_keyword(
         current_user: User = Depends(get_current_user)
 ):
     # Check if keyword already exists
-    # existing = db.query(Keyword).filter(
-    #     Keyword.keyword.ilike(keyword_data.keyword)
-    # ).first()
     stmt = select(Keyword).where(
         Keyword.keyword.ilike(keyword_data.keyword)
     )
@@ -132,7 +152,6 @@ async def update_keyword(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    # keyword = db.query(Keyword).filter(Keyword.id == keyword_id).first()
     result = await db.execute(
         select(Keyword).where(Keyword.id == keyword_id)
     )
@@ -159,7 +178,6 @@ async def delete_keyword(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    # keyword = db.query(Keyword).filter(Keyword.id == keyword_id).first()
     result = await db.execute(
         select(Keyword).where(Keyword.id == keyword_id)
     )
@@ -184,9 +202,6 @@ async def get_top_keywords(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    # keywords = db.query(Keyword).filter(
-    #     Keyword.is_active == True
-    # ).order_by(Keyword.match_count.desc()).limit(limit).all()
     result = await db.execute(
         select(Keyword)
         .where(Keyword.is_active == True)
