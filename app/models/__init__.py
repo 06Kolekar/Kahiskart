@@ -6,7 +6,7 @@ from .fetch_log import FetchLog
 from .notification import Notification
 from .refresh_token import RefreshToken
 from .app_settings import AppSettings
-
+from .excel_raw import ExcelFile, ExcelSheet, ExcelRowRaw
 
 __all__ = [
     "User",
@@ -16,5 +16,8 @@ __all__ = [
     "FetchLog",
     "Notification",
     "RefreshToken",
-    "AppSettings"
+    "AppSettings",
+    "ExcelFile",
+    "ExcelSheet",
+    "ExcelRowRaw",
 ]
