@@ -11,14 +11,14 @@ import logging
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.core.scheduler import scheduler
+from app.core.scheduler import scheduler, start_scheduler
 
 from fastapi.staticfiles import StaticFiles
 # One-Drive
 from app.core.onedrivescheduler import OneDriveScheduler
 
 # Import routers
-from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router, onedrive, powerbi, app_settings
+from app.routers import auth, tenders, keywords, sources, fetch, notifications, scrape_router, onedrive, powerbi, app_settings,excel_control
 
 
 # Configure logging
@@ -96,6 +96,7 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["Not
 app.include_router(scrape_router.router, prefix="/scrape", tags=["Scraping"])
 app.include_router(onedrive.router, prefix=settings.API_V1_PREFIX)
 
+app.include_router(excel_control.router, prefix="/api/excel_control", tags=["Excel_Control"])
 app.include_router(app_settings.router)
 
 @app.get("/")
@@ -123,3 +124,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error occurred"}
     )
+    
+@app.on_event("startup")
+async def startup_event():
+    start_scheduler()
+    print("Scheduler Started")
