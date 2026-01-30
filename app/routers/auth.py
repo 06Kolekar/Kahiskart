@@ -47,6 +47,10 @@ from app.utils.file_upload import (
 
 from fastapi import UploadFile, File
 
+from fastapi.security import OAuth2PasswordBearer
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
 router = APIRouter()
 
 # Email validation - block temporary emails
@@ -72,10 +76,10 @@ def generate_otp() -> str:
     return ''.join(random.choices(string.digits, k=6))
 
 
-async def get_current_user(token: str, db: AsyncSession = Depends(get_db)) -> User:
-
-    from fastapi.security import OAuth2PasswordBearer
-    oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> User:
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -84,16 +88,19 @@ async def get_current_user(token: str, db: AsyncSession = Depends(get_db)) -> Us
     )
 
     payload = decode_access_token(token)
+
     if payload is None:
         raise credentials_exception
 
     email: str = payload.get("sub")
+
     if email is None:
         raise credentials_exception
 
     result = await db.execute(
         select(User).where(User.email == email)
     )
+
     user = result.scalar_one_or_none()
 
     if user is None:
@@ -499,7 +506,14 @@ async def upload_profile_picture(
         await db.commit()
         await db.refresh(current_user)
 
-        return UserResponse.model_validate(current_user)
+        user_data = UserResponse.model_validate(current_user)
+
+        user_data.profile_picture = build_profile_url(
+            current_user.profile_picture
+        )
+
+        return user_data
+
 
     except Exception as e:
 
@@ -532,7 +546,14 @@ async def delete_profile_picture(
         await db.commit()
         await db.refresh(current_user)
 
-        return UserResponse.model_validate(current_user)
+        user_data = UserResponse.model_validate(current_user)
+
+        user_data.profile_picture = build_profile_url(
+            current_user.profile_picture
+        )
+
+        return user_data
+
 
     except Exception as e:
 
