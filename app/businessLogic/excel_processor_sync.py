@@ -157,7 +157,7 @@ class ExcelProcessorSync:
     # ================= MAIN =================
     @staticmethod
     def process_all_registered_files():
-        print("\n🚀 AUTO EXCEL FETCH START")
+        print("\n [ AUTO EXCEL FETCH START ]")
 
         db = SyncSessionLocal()
         files = db.query(ExcelFile).all()

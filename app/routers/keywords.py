@@ -11,6 +11,8 @@ from app.schemas.keyword_schema import (
 )
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+
 router = APIRouter()
 
 
@@ -204,3 +206,20 @@ async def get_top_keywords(
         }
         for k in keywords
     ]
+
+@router.get("/search")
+async def search_rows(
+    keyword: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = text("""
+        SELECT *
+        FROM excel_row_raw
+        WHERE JSON_SEARCH(row_data, 'one', :kw) IS NOT NULL
+    """)
+
+    result = await db.execute(query, {"kw": keyword})
+    rows = result.mappings().all()
+
+    return rows
