@@ -1,7 +1,9 @@
-from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
+
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification, NotificationType, NotificationChannel
 from app.models.tender import Tender
@@ -10,44 +12,64 @@ from app.models.user import User
 from app.notifications.email import EmailNotificationService
 from app.notifications.desktop import DesktopNotificationService
 from app.core.config import settings
-from sqlalchemy.future import select
-from sqlalchemy.ext.asyncio import AsyncSession
+
 
 logger = logging.getLogger(__name__)
 
 
+# Central place for module names
+MODULES = {
+    "DASHBOARD": "dashboard",
+    "TENDERS": "tenders",
+    "KEYWORDS": "keywords",
+    "SYSTEM": "system-logs",
+}
+
+
 class NotificationService:
 
+    # --------------------------------------------------
+    # KEYWORD MATCH
+    # --------------------------------------------------
     @staticmethod
     async def send_keyword_match_notification(
-            db: AsyncSession,
-            tender: Tender,
-            matched_keywords: List[Keyword]
+        db: AsyncSession,
+        tender: Tender,
+        matched_keywords: List[Keyword]
     ):
-        # users = db.query(User).filter(User.is_active == True).all()
-        result = await db.execute(select(User).where(User.is_active == True))
+
+        result = await db.execute(
+            select(User).where(User.is_active == True)
+        )
         users = result.scalars().all()
 
         email_service = EmailNotificationService()
         desktop_service = DesktopNotificationService()
 
         for user in users:
+
             deadline = (
-                datetime.strptime(tender.deadline_date, "%Y-%m-%d") 
+                datetime.strptime(tender.deadline_date, "%Y-%m-%d")
                 if tender.deadline_date else None
             )
 
             deadline_str = deadline.strftime("%Y-%m-%d") if deadline else "N/A"
+
             notification = Notification(
                 user_id=user.id,
                 tender_id=tender.id,
+
+                #  MODULE
+                module=MODULES["TENDERS"],
+
                 type=NotificationType.KEYWORD_MATCH,
                 channel=NotificationChannel.BOTH,
+
                 title=f"New Tender Match: {tender.title[:50]}...",
                 message=(
-                    f"Matched keywords: {', '.join([k.keyword for k in matched_keywords[:3]])}. "
+                    f"Matched keywords: "
+                    f"{', '.join([k.keyword for k in matched_keywords[:3]])}. "
                     f"Agency: {tender.agency_name or 'N/A'}. "
-                    # f"Deadline: {tender.deadline_date.strftime('%Y-%m-%d') if tender.deadline_date else 'N/A'}"
                     f"Deadline: {deadline_str}"
                 )
             )
@@ -64,6 +86,7 @@ class NotificationService:
                         recipients=[user.email]
                     )
                     notification.email_sent = True
+
                 except Exception as e:
                     logger.error(f"Email failed: {e}")
                     notification.error_message = str(e)
@@ -76,83 +99,114 @@ class NotificationService:
                         message=notification.message
                     )
                     notification.desktop_sent = True
-                except Exception as e:
-                    logger.error(f"Desktop notification failed: {e}")
 
-            notification.is_sent = notification.email_sent or notification.desktop_sent
+                except Exception as e:
+                    logger.error(f"Desktop failed: {e}")
+
+            # FINAL STATUS
+            notification.is_sent = (
+                notification.email_sent or notification.desktop_sent
+            )
+
             if notification.is_sent:
                 notification.sent_at = datetime.utcnow()
 
         await db.commit()
 
         logger.info(
-            f"Sent keyword match notifications for tender {tender.reference_id} "
-            f"to {len(users)} users"
+            f"Keyword notifications sent for tender {tender.reference_id}"
         )
 
+    # --------------------------------------------------
+    # NEW TENDER
+    # --------------------------------------------------
     @staticmethod
-    def send_new_tender_notification(
-            db: Session,
-            tender: Tender
+    async def send_new_tender_notification(
+        db: AsyncSession,
+        tender: Tender
     ):
 
-
-        users = db.query(User).filter(User.is_active == True).all()
+        result = await db.execute(
+            select(User).where(User.is_active == True)
+        )
+        users = result.scalars().all()
 
         for user in users:
+
             notification = Notification(
                 user_id=user.id,
                 tender_id=tender.id,
+
+                #  MODULE
+                module=MODULES["DASHBOARD"],
+
                 type=NotificationType.NEW_TENDER,
-                channel=NotificationChannel.EMAIL,  # Less urgent, email only
+                channel=NotificationChannel.EMAIL,
+
                 title=f"New Tender Published: {tender.title[:50]}...",
-                message=f"Agency: {tender.agency_name or 'N/A'}. "
-                        f"Published: {tender.published_date.strftime('%Y-%m-%d') if tender.published_date else 'N/A'}"
+                message=(
+                    f"Agency: {tender.agency_name or 'N/A'}. "
+                    f"Published: "
+                    f"{tender.published_date.strftime('%Y-%m-%d') if tender.published_date else 'N/A'}"
+                )
             )
 
             db.add(notification)
 
-        db.commit()
+        await db.commit()
 
+    # --------------------------------------------------
+    # DEADLINE ALERT
+    # --------------------------------------------------
     @staticmethod
-    def send_deadline_approaching_notification(
-            db: Session,
-            tender: Tender,
-            days_remaining: int
+    async def send_deadline_approaching_notification(
+        db: AsyncSession,
+        tender: Tender,
+        days_remaining: int
     ):
-        users = db.query(User).filter(User.is_active == True).all()
+
+        result = await db.execute(
+            select(User).where(User.is_active == True)
+        )
+        users = result.scalars().all()
 
         email_service = EmailNotificationService()
         desktop_service = DesktopNotificationService()
 
         for user in users:
+
             notification = Notification(
                 user_id=user.id,
                 tender_id=tender.id,
+
+                #  MODULE
+                module=MODULES["TENDERS"],
+
                 type=NotificationType.DEADLINE_APPROACHING,
                 channel=NotificationChannel.BOTH,
+
                 title=f"Deadline Approaching: {tender.title[:50]}...",
                 message=(
-                    f"{days_remaining} days remaining until deadline. "
+                    f"{days_remaining} days remaining. "
                     f"Deadline: {tender.deadline_date.strftime('%Y-%m-%d')}"
                 )
             )
 
             db.add(notification)
-            db.flush()
+            await db.flush()
 
-            # Urgent → send immediately
             if days_remaining <= 7:
 
                 # EMAIL
                 if settings.ENABLE_EMAIL_NOTIFICATIONS:
                     try:
-                        email_service.send_deadline_alert(
+                        await email_service.send_deadline_alert(
                             tender=tender,
                             recipients=[user.email],
                             days_remaining=days_remaining
                         )
                         notification.email_sent = True
+
                     except Exception as e:
                         logger.error(f"Deadline email failed: {e}")
                         notification.error_message = str(e)
@@ -165,43 +219,56 @@ class NotificationService:
                             message=notification.message
                         )
                         notification.desktop_sent = True
-                    except Exception as e:
-                        logger.error(f"Desktop deadline alert failed: {e}")
 
-                notification.is_sent = notification.email_sent or notification.desktop_sent
+                    except Exception as e:
+                        logger.error(f"Desktop deadline failed: {e}")
+
+                notification.is_sent = (
+                    notification.email_sent or notification.desktop_sent
+                )
+
                 if notification.is_sent:
                     notification.sent_at = datetime.utcnow()
 
-        db.commit()
+        await db.commit()
 
+    # --------------------------------------------------
+    # CRON JOB: DEADLINE CHECK
+    # --------------------------------------------------
     @staticmethod
-    def check_approaching_deadlines(db: Session):
-
-        from datetime import date, timedelta
+    async def check_approaching_deadlines(db: AsyncSession):
 
         today = date.today()
         deadline_7days = today + timedelta(days=7)
 
-        # Find tenders with deadlines in next 7 days
-        tenders = db.query(Tender).filter(
-            Tender.deadline_date <= deadline_7days,
-            Tender.deadline_date >= today,
-            Tender.status != "expired",
-            Tender.is_deleted == False
-        ).all()
+        result = await db.execute(
+            select(Tender).where(
+                Tender.deadline_date <= deadline_7days,
+                Tender.deadline_date >= today,
+                Tender.status != "expired",
+                Tender.is_deleted == False
+            )
+        )
+
+        tenders = result.scalars().all()
 
         for tender in tenders:
+
             days_remaining = (tender.deadline_date - today).days
 
-            # Check if notification already sent
-            existing = db.query(Notification).filter(
-                Notification.tender_id == tender.id,
-                Notification.type == NotificationType.DEADLINE_APPROACHING
-            ).first()
+            existing = await db.execute(
+                select(Notification).where(
+                    Notification.tender_id == tender.id,
+                    Notification.type == NotificationType.DEADLINE_APPROACHING
+                )
+            )
 
-            if not existing:
-                NotificationService.send_deadline_approaching_notification(
-                    db, tender, days_remaining
+            if not existing.scalars().first():
+
+                await NotificationService.send_deadline_approaching_notification(
+                    db,
+                    tender,
+                    days_remaining
                 )
 
-        logger.info(f"Checked {len(tenders)} tenders for approaching deadlines")
+        logger.info(f"Checked {len(tenders)} tenders for deadlines")

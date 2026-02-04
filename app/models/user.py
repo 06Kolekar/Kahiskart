@@ -43,5 +43,12 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    notification_settings = relationship(
+        "NotificationSettings",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self):
         return f"<User {self.email}>"

@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
 import enum
-
+from sqlalchemy import Index
 
 class NotificationType(str, enum.Enum):
     NEW_TENDER = "new_tender"
@@ -28,6 +28,8 @@ class Notification(Base):
 
     # Tender Reference (optional)
     tender_id = Column(Integer, ForeignKey("tenders.id"))
+
+    module = Column(String(50), nullable=False, index=True, default="dashboard")
 
     # Notification Details
     type = Column(Enum(NotificationType), nullable=False, index=True)
@@ -58,3 +60,10 @@ class Notification(Base):
 
     def __repr__(self):
         return f"<Notification {self.type} - {self.title}>"
+
+Index(
+    "ix_notifications_user_module_read",
+    Notification.user_id,
+    Notification.module,
+    Notification.is_read
+)

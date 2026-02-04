@@ -14,7 +14,7 @@ from app.schemas.fetch_log_schema import (
     FetchLogCreate, FetchLogResponse, FetchLogList
 )
 from app.schemas.notification_schema import (
-    NotificationCreate, NotificationResponse, NotificationList, NotificationSettings
+    NotificationResponse, NotificationList, NotificationSettings
 )
 
 __all__ = [
@@ -23,5 +23,5 @@ __all__ = [
     "KeywordCreate", "KeywordUpdate", "KeywordResponse", "KeywordList",
     "SourceCreate", "SourceUpdate", "SourceResponse", "SourceList",
     "FetchLogCreate", "FetchLogResponse", "FetchLogList",
-    "NotificationCreate", "NotificationResponse", "NotificationList", "NotificationSettings"
+     "NotificationResponse", "NotificationList", "NotificationSettings"
 ]
