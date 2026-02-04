@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, and_, desc, select
+from sqlalchemy.orm import joinedload
 from datetime import datetime, timedelta
 
 from app.core.database import get_db
 from app.models.tender import Tender
-from app.models.keyword import Keyword
 from app.models.source import Source
+from app.models.keyword import Keyword, TenderKeywordMatch
 from app.auth.dependencies import get_current_user
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+router = APIRouter(tags=["Dashboard"])
 
 
 # ===========================
@@ -20,15 +22,13 @@ async def get_dashboard_stats(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Get dashboard statistics
-    Matches all cards on Dashboard page
-    """
 
     today_start = datetime.now().replace(hour=0, minute=0, second=0)
     yesterday_start = today_start - timedelta(days=1)
 
-    # New tenders today
+    # -----------------------
+    # New tenders
+    # -----------------------
     new_today = await db.scalar(
         select(func.count(Tender.id))
         .where(Tender.created_at >= today_start)
@@ -44,32 +44,32 @@ async def get_dashboard_stats(
         )
     ) or 0
 
-    # Percentage change
     new_change = 0
     if new_yesterday > 0:
         new_change = ((new_today - new_yesterday) / new_yesterday) * 100
 
-    # Keyword matches today
+
+    # -----------------------
+    # Matched tenders (via relation)
+    # -----------------------
     matched_today = await db.scalar(
-        select(func.count(Tender.id))
-        .where(
-            and_(
-                Tender.is_matched == True,
-                Tender.created_at >= today_start
-            )
-        )
+        select(func.count(func.distinct(Tender.id)))
+        .join(TenderKeywordMatch)
+        .where(Tender.created_at >= today_start)
     ) or 0
 
+
     matched_yesterday = await db.scalar(
-        select(func.count(Tender.id))
+        select(func.count(func.distinct(Tender.id)))
+        .join(TenderKeywordMatch)
         .where(
             and_(
-                Tender.is_matched == True,
                 Tender.created_at >= yesterday_start,
                 Tender.created_at < today_start
             )
         )
     ) or 0
+
 
     matched_change = 0
     if matched_yesterday > 0:
@@ -77,7 +77,10 @@ async def get_dashboard_stats(
             (matched_today - matched_yesterday) / matched_yesterday
         ) * 100
 
-    # Active sources
+
+    # -----------------------
+    # Sources
+    # -----------------------
     active_sources = await db.scalar(
         select(func.count(Source.id))
         .where(Source.is_active == True)
@@ -87,26 +90,27 @@ async def get_dashboard_stats(
         select(func.count(Source.id))
     ) or 0
 
-    # Alerts today
+
+    # -----------------------
+    # Alerts
+    # -----------------------
     alerts_today = new_today + matched_today
 
-    # Top keywords (last 30 days)
+
+    # -----------------------
+    # Top Keywords (30 days)
+    # -----------------------
     thirty_days_ago = today_start - timedelta(days=30)
 
     result = await db.execute(
         select(
             Keyword.keyword,
-            Keyword.group_name,
-            func.count(Tender.id).label("match_count")
+            Keyword.category,
+            func.count(TenderKeywordMatch.id).label("match_count")
         )
-        .join(
-            Tender,
-            Tender.matched_keywords.like(
-                func.concat('%', Keyword.keyword, '%')
-            )
-        )
-        .where(Tender.created_at >= thirty_days_ago)
-        .group_by(Keyword.id, Keyword.keyword, Keyword.group_name)
+        .join(TenderKeywordMatch)
+        .where(TenderKeywordMatch.created_at >= thirty_days_ago)
+        .group_by(Keyword.id, Keyword.keyword, Keyword.category)
         .order_by(desc("match_count"))
         .limit(5)
     )
@@ -121,6 +125,7 @@ async def get_dashboard_stats(
         }
         for k in keywords_data
     ]
+
 
     return {
         "new_tenders_today": new_today,
@@ -147,14 +152,12 @@ async def get_recent_tenders(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Get recent tenders for dashboard
-    """
 
     result = await db.execute(
         select(Tender)
+        .options(joinedload(Tender.source))
         .where(Tender.is_deleted == False)
-        .order_by(desc(Tender.publish_date))
+        .order_by(desc(Tender.created_at))
         .limit(limit)
     )
 
@@ -164,18 +167,13 @@ async def get_recent_tenders(
 
     for t in tenders:
 
-        # Normalize status
         status = t.status.lower() if t.status else "viewed"
 
-        # Safe keyword handling
-        if isinstance(t.matched_keywords, str):
-            keywords = [k.strip() for k in t.matched_keywords.split(",")]
-        elif isinstance(t.matched_keywords, list):
-            keywords = t.matched_keywords
-        else:
-            keywords = []
+        keywords = [m.keyword.keyword for m in t.keyword_matches]
+
 
         tender_list.append({
+
             "id": t.id,
             "title": t.title,
             "reference_id": t.reference_id,
@@ -183,12 +181,13 @@ async def get_recent_tenders(
             "agency_name": t.agency_name,
             "agency_location": t.agency_location,
 
-            "source_name": t.source_name,
+            "source_name": t.source.name if t.source else None,
 
             "deadline_date": t.deadline_date,
             "days_until_deadline": t.days_until_deadline,
 
             "status": status,
+
             "matched_keywords": keywords,
 
             "description": t.description,
@@ -198,6 +197,7 @@ async def get_recent_tenders(
 
             "created_at": t.created_at
         })
+
 
     return tender_list
 
@@ -210,31 +210,30 @@ async def get_source_status_overview(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Get source status overview
-    """
 
     today_start = datetime.now().replace(hour=0, minute=0, second=0)
 
-    # Get tender counts per source (OPTIMIZED)
+
     result = await db.execute(
         select(
-            Tender.source_name,
+            Source.name,
             func.count(Tender.id)
         )
+        .join(Tender, Tender.source_id == Source.id)
         .where(Tender.created_at >= today_start)
-        .group_by(Tender.source_name)
+        .group_by(Source.name)
     )
 
     tender_counts = dict(result.all())
 
-    # Get all sources
+
     result = await db.execute(
         select(Source)
         .where(Source.is_active == True)
     )
 
     sources = result.scalars().all()
+
 
     result_list = []
 
@@ -243,6 +242,7 @@ async def get_source_status_overview(
         count_today = tender_counts.get(s.name, 0)
 
         result_list.append({
+
             "name": s.name,
 
             "status": s.fetch_status or "UNKNOWN",
@@ -255,5 +255,6 @@ async def get_source_status_overview(
                 else None
             )
         })
+
 
     return result_list

@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import timedelta, datetime
+from fastapi import Request
+from app.models.login_history import LoginHistory
 import secrets
 import random
 import string
@@ -269,6 +271,7 @@ async def resend_verification(
 @router.post("/login", response_model=TokenWithRefresh)
 async def login(
         login_data: UserLogin,
+        request: Request,
         db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -276,27 +279,62 @@ async def login(
     )
     user = result.scalar_one_or_none()
 
+    ip = request.client.host
+    device = request.headers.get("user-agent")
+
+    #  User not found or wrong password
     if not user or not verify_password(login_data.password, user.hashed_password):
+
+        if user:
+            db.add(
+                LoginHistory(
+                    user_id=user.id,
+                    ip_address=ip,
+                    user_agent=device,
+                    status="failed"
+                )
+            )
+            await db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
 
+    #  Blocked by admin
+    if user.is_blocked:
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is blocked by admin"
+        )
+
+    #  Not verified
     if not user.is_verified:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Please verify your email before logging in"
+            status_code=403,
+            detail="Please verify your email first"
         )
 
+    #  Inactive
     if not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Account is inactive"
         )
 
+    #  Success login
     user.last_login = datetime.utcnow()
 
+    db.add(
+        LoginHistory(
+            user_id=user.id,
+            ip_address=ip,
+            user_agent=device,
+            status="success"
+        )
+    )
+
+    # Create token
     access_token = create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -320,6 +358,7 @@ async def login(
         "token_type": "bearer",
         "user": user
     }
+
 
 @router.post("/forgot-password", response_model=dict)
 async def forgot_password(
@@ -657,7 +696,7 @@ async def refresh_token(
     if not token_entry:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    # ❗ DO NOT use token_entry.user
+    #  DO NOT use token_entry.user
     result = await db.execute(
         select(User).where(User.id == token_entry.user_id)
     )

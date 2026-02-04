@@ -1,30 +1,40 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy import func
 from typing import Optional
 from datetime import datetime
 
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from cryptography.fernet import Fernet
+from base64 import urlsafe_b64encode
+from pydantic import BaseModel
+
 from app.core.database import get_db
+from app.core.config import settings
+
 from app.models.source import Source, SourceStatus
 from app.models.tender import Tender
 from app.models.user import User
+
 from app.routers.auth import get_current_user
 from app.schemas.source_schema import (
-    SourceCreate, SourceUpdate, SourceResponse, SourceList, SourceStats
+    SourceCreate,
+    SourceUpdate,
+    SourceResponse,
+    SourceList,
+    SourceStats
 )
-from cryptography.fernet import Fernet
-from app.core.config import settings
-
-from sqlalchemy.future import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 
-# Encryption for passwords
+# ======================================================
+# 🔐 Encryption Utils
+# ======================================================
+
 def get_cipher():
-    key = settings.SECRET_KEY[:32].encode().ljust(32, b'0')
-    from base64 import urlsafe_b64encode
+    key = settings.SECRET_KEY[:32].encode().ljust(32, b"0")
     return Fernet(urlsafe_b64encode(key))
 
 
@@ -39,14 +49,21 @@ def decrypt_password(encrypted: str) -> str:
 
 
 
+
+class RegisterFileRequest(BaseModel):
+    path: str
+
+
+
+
 @router.get("/", response_model=SourceList)
 async def get_sources(
 
-    #  Filters
+    # Filters
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
 
-    #  Pagination
+    # Pagination
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
 
@@ -56,50 +73,49 @@ async def get_sources(
 
     stmt = select(Source)
 
-    #  Apply filters
+    # Apply filters
     if search:
         stmt = stmt.where(Source.name.ilike(f"%{search}%"))
 
     if status:
         stmt = stmt.where(Source.status == status)
 
-    #  Count query
+    # Count
     count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar()
 
-    total_result = await db.execute(count_stmt)
-    total = total_result.scalar()
-
-    #  Pagination
+    # Pagination
     offset = (page - 1) * size
 
     stmt = (
         stmt
-        .order_by(Source.name)
+        .order_by(Source.created_at.desc())
         .offset(offset)
         .limit(size)
     )
 
-    # ▶ Fetch paginated data
     result = await db.execute(stmt)
     sources = result.scalars().all()
 
-    #  Stats (optional, based on filtered data)
-    active = sum(
-        1 for s in sources
-        if s.is_active and s.status == SourceStatus.ACTIVE
+    # Accurate DB stats
+    active_stmt = select(func.count()).where(
+        Source.is_active == True,
+        Source.status == SourceStatus.ACTIVE
     )
 
-    disabled = sum(
-        1 for s in sources
-        if not s.is_active or s.status == SourceStatus.DISABLED
+    disabled_stmt = select(func.count()).where(
+        Source.is_active == False
     )
 
-    errors = sum(
-        1 for s in sources
-        if s.status == SourceStatus.ERROR
+    error_stmt = select(func.count()).where(
+        Source.status == SourceStatus.ERROR
     )
 
-    pages = (total + size - 1) // size  # ceil division
+    active = (await db.execute(active_stmt)).scalar()
+    disabled = (await db.execute(disabled_stmt)).scalar()
+    errors = (await db.execute(error_stmt)).scalar()
+
+    pages = (total + size - 1) // size
 
     return {
         "page": page,
@@ -114,74 +130,37 @@ async def get_sources(
         "items": sources
     }
 
-# @router.get("/", response_model=SourceList)
-# async def get_sources(
-#         search: Optional[str] = Query(None),
-#         status: Optional[str] = Query(None),
-#         db: Session = Depends(get_db),
-#         current_user: User = Depends(get_current_user)
-# ):
-#     query = db.query(Source)
 
-#     if search:
-#         query = query.filter(Source.name.ilike(f"%{search}%"))
 
-#     if status:
-#         query = query.filter(Source.status == status)
-
-#     sources = query.order_by(Source.name).all()
-
-#     # Calculate stats
-#     total = len(sources)
-#     active = sum(1 for s in sources if s.is_active and s.status == SourceStatus.ACTIVE)
-#     disabled = sum(1 for s in sources if not s.is_active or s.status == SourceStatus.DISABLED)
-#     errors = sum(1 for s in sources if s.status == SourceStatus.ERROR)
-
-#     return {
-#         "total": total,
-#         "active": active,
-#         "disabled": disabled,
-#         "errors": errors,
-#         "items": sources
-#     }
-
-# from sqlalchemy import func
-# from sqlalchemy.future import select
-# from sqlalchemy.ext.asyncio import AsyncSession
 
 @router.get("/stats", response_model=SourceStats)
 async def get_source_stats(
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # Total sources
-    result = await db.execute(select(func.count(Source.id)))
-    total = result.scalar()  # scalar() returns single value
 
-    # Active sources
-    result = await db.execute(
+    total = (await db.execute(
+        select(func.count(Source.id))
+    )).scalar()
+
+    active = (await db.execute(
         select(func.count(Source.id)).where(
             Source.is_active == True,
             Source.status == SourceStatus.ACTIVE
         )
-    )
-    active = result.scalar()
+    )).scalar()
 
-    # Disabled sources
-    result = await db.execute(
+    disabled = (await db.execute(
         select(func.count(Source.id)).where(
             Source.is_active == False
         )
-    )
-    disabled = result.scalar()
+    )).scalar()
 
-    # Error sources
-    result = await db.execute(
+    errors = (await db.execute(
         select(func.count(Source.id)).where(
             Source.status == SourceStatus.ERROR
         )
-    )
-    errors = result.scalar()
+    )).scalar()
 
     return {
         "total_sources": total,
@@ -190,76 +169,51 @@ async def get_source_stats(
         "error_sources": errors
     }
 
-# @router.get("/stats", response_model=SourceStats)
-# async def get_source_stats(
-#         db: Session = Depends(get_db),
-#         current_user: User = Depends(get_current_user)
-# ):
-#     total = db.query(func.count(Source.id)).scalar()
-#     active = db.query(func.count(Source.id)).filter(
-#         Source.is_active == True,
-#         Source.status == SourceStatus.ACTIVE
-#     ).scalar()
-#     disabled = db.query(func.count(Source.id)).filter(
-#         Source.is_active == False
-#     ).scalar()
-#     errors = db.query(func.count(Source.id)).filter(
-#         Source.status == SourceStatus.ERROR
-#     ).scalar()
 
-#     return {
-#         "total_sources": total,
-#         "active_sources": active,
-#         "disabled_sources": disabled,
-#         "error_sources": errors
-#     }
-
+# ======================================================
+# 🔍 Get Single Source
+# ======================================================
 
 @router.get("/{source_id}", response_model=SourceResponse)
 async def get_source(
-        source_id: int,
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+    source_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # source = db.query(Source).filter(Source.id == source_id).first()
+
     stmt = select(Source).where(Source.id == source_id)
-    result = await db.execute(stmt)
-    source = result.scalar_one_or_none()
+
+    source = (await db.execute(stmt)).scalar_one_or_none()
 
     if not source:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Source not found"
-        )
+        raise HTTPException(404, "Source not found")
 
     return source
 
 
 
-@router.post("/", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post("/", response_model=SourceResponse, status_code=201)
 async def create_source(
-        source_data: SourceCreate,
-        db: AsyncSession = Depends(get_db),  # make sure AsyncSession
-        current_user: User = Depends(get_current_user)
+    source_data: SourceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # Check if source with same URL exists
-    result = await db.execute(select(Source).where(Source.url == source_data.url))
-    existing = result.scalars().first()
 
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Source with this URL already exists"
-        )
+    exists = (await db.execute(
+        select(Source).where(Source.url == source_data.url)
+    )).scalars().first()
 
-    # Create source
-    source_dict = source_data.dict(exclude={'password'})
+    if exists:
+        raise HTTPException(400, "Source with this URL already exists")
 
-    # Encrypt password if provided
+    data = source_data.dict(exclude={"password"})
+
     if source_data.password:
-        source_dict['encrypted_password'] = encrypt_password(source_data.password)
+        data["encrypted_password"] = encrypt_password(source_data.password)
 
-    source = Source(**source_dict)
+    source = Source(**data)
+
     db.add(source)
     await db.commit()
     await db.refresh(source)
@@ -267,61 +221,29 @@ async def create_source(
     return source
 
 
-# @router.post("/", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
-# async def create_source(
-#         source_data: SourceCreate,
-#         db: Session = Depends(get_db),
-#         current_user: User = Depends(get_current_user)
-# ):
-#     # Check if source with same URL exists
-#     existing = db.query(Source).filter(Source.url == source_data.url).first()
-#     if existing:
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail="Source with this URL already exists"
-#         )
-
-#     # Create source
-#     source_dict = source_data.dict(exclude={'password'})
-
-#     # Encrypt password if provided
-#     if source_data.password:
-#         source_dict['encrypted_password'] = encrypt_password(source_data.password)
-
-#     source = Source(**source_dict)
-#     db.add(source)
-#     db.commit()
-#     db.refresh(source)
-
-#     return source
 
 
 @router.patch("/{source_id}", response_model=SourceResponse)
 async def update_source(
-        source_id: int,
-        source_update: SourceUpdate,
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+    source_id: int,
+    source_update: SourceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # source = db.query(Source).filter(Source.id == source_id).first()
+
     stmt = select(Source).where(Source.id == source_id)
-    result = await db.execute(stmt)
-    source = result.scalar_one_or_none()
+    source = (await db.execute(stmt)).scalar_one_or_none()
 
     if not source:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Source not found"
-        )
+        raise HTTPException(404, "Source not found")
 
-    update_data = source_update.dict(exclude_unset=True, exclude={'password'})
+    data = source_update.dict(exclude_unset=True, exclude={"password"})
 
-    # Handle password update
     if source_update.password:
-        update_data['encrypted_password'] = encrypt_password(source_update.password)
+        data["encrypted_password"] = encrypt_password(source_update.password)
 
-    for field, value in update_data.items():
-        setattr(source, field, value)
+    for k, v in data.items():
+        setattr(source, k, v)
 
     await db.commit()
     await db.refresh(source)
@@ -329,32 +251,31 @@ async def update_source(
     return source
 
 
-@router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/{source_id}", status_code=204)
 async def delete_source(
-        source_id: int,
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+    source_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # source = db.query(Source).filter(Source.id == source_id).first()
+
     stmt = select(Source).where(Source.id == source_id)
-    result = await db.execute(stmt)
-    source = result.scalar_one_or_none()
+    source = (await db.execute(stmt)).scalar_one_or_none()
 
     if not source:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Source not found"
-        )
+        raise HTTPException(404, "Source not found")
 
-    # Check if source has tenders
-    tender_count = db.query(func.count(Tender.id)).filter(
+    tender_stmt = select(func.count(Tender.id)).where(
         Tender.source_id == source_id
-    ).scalar()
+    )
+
+    tender_count = (await db.execute(tender_stmt)).scalar()
 
     if tender_count > 0:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot delete source with {tender_count} associated tenders"
+            400,
+            f"Cannot delete source with {tender_count} tenders"
         )
 
     await db.delete(source)
@@ -363,38 +284,84 @@ async def delete_source(
     return None
 
 
+
+
 @router.post("/{source_id}/toggle", response_model=SourceResponse)
 async def toggle_source(
-        source_id: int,
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+    source_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    # source = db.query(Source).filter(Source.id == source_id).first()
+
     stmt = select(Source).where(Source.id == source_id)
-    result = await db.execute(stmt)
-    source = result.scalar_one_or_none()
+    source = (await db.execute(stmt)).scalar_one_or_none()
 
     if not source:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Source not found"
-        )
+        raise HTTPException(404, "Source not found")
 
     source.is_active = not source.is_active
-    if source.is_active:
-        source.status = SourceStatus.ACTIVE
-    else:
-        source.status = SourceStatus.DISABLED
+
+    source.status = (
+        SourceStatus.ACTIVE
+        if source.is_active
+        else SourceStatus.DISABLED
+    )
 
     await db.commit()
     await db.refresh(source)
 
     return source
 
-async def get_source_or_404(db: AsyncSession, source_id: int) -> Source:
+
+
+
+@router.post("/{source_id}/refresh")
+async def refresh_source(
+    source_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
     stmt = select(Source).where(Source.id == source_id)
-    result = await db.execute(stmt)
-    source = result.scalar_one_or_none()
+    source = (await db.execute(stmt)).scalar_one_or_none()
+
     if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    return source
+        raise HTTPException(404, "Source not found")
+
+    # Update timestamp
+    source.last_fetch_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(source)
+
+    # Run fetch in background
+    try:
+        from app.businessLogic.source_service import fetch_from_source
+        background_tasks.add_task(fetch_from_source, source_id)
+    except Exception:
+        pass
+
+    return {
+        "message": "Refresh started",
+        "source_id": source_id,
+        "last_fetch": source.last_fetch_at
+    }
+
+
+
+
+@router.post("/register-file")
+async def register_excel_file(
+    data: RegisterFileRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    path = data.path.replace("\\", "/").strip('\'"')
+
+    return {
+        "status": "registered",
+        "path": path,
+        "message": "Excel file registered successfully"
+    }

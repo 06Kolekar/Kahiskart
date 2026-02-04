@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import or_, select, func
 from typing import Optional
 from datetime import datetime, timedelta
 
@@ -7,7 +8,7 @@ from app.core.database import get_db
 from app.models.fetch_log import FetchLog, FetchStatus
 from app.models.source import Source
 from app.models.user import User
-from app.routers.auth import get_current_user
+from app.auth.dependencies import get_current_user
 from app.schemas.fetch_log_schema import (
     FetchLogResponse, FetchLogList, FetchLogFilter
 )
@@ -19,36 +20,79 @@ router = APIRouter()
 async def get_fetch_logs(
         status: Optional[str] = Query(None),
         source_id: Optional[int] = Query(None),
+        search: Optional[str] = Query(None),
         page: int = Query(1, ge=1),
         page_size: int = Query(25, ge=1, le=100),
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    query = db.query(FetchLog)
+    # Base query
+    base_query = select(FetchLog)
 
+    # Apply filters
     if status:
-        query = query.filter(FetchLog.status == status)
+        base_query = base_query.where(FetchLog.status == status)
 
     if source_id:
-        query = query.filter(FetchLog.source_id == source_id)
+        base_query = base_query.where(FetchLog.source_id == source_id)
 
-    # Count total and by status
-    total = query.count()
-    success_count = query.filter(FetchLog.status == FetchStatus.SUCCESS).count()
-    warning_count = query.filter(FetchLog.status == FetchStatus.WARNING).count()
-    error_count = query.filter(FetchLog.status == FetchStatus.ERROR).count()
-    info_count = query.filter(FetchLog.status == FetchStatus.INFO).count()
+    # Search filter
+    if search:
+        term = f"%{search.strip()}%"
+        base_query = base_query.join(
+            Source,
+            FetchLog.source_id == Source.id
+        ).where(
+            or_(
+                FetchLog.message.ilike(term),
+                Source.name.ilike(term)
+            )
+        )
 
-    # Pagination
+    # ---------- COUNTS (without pagination) ----------
+    # Count total
+    count_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
+    total = count_result.scalar() or 0
+
+    # Status counts
+    status_count_result = await db.execute(
+        select(
+            FetchLog.status,
+            func.count(FetchLog.id)
+        )
+        .group_by(FetchLog.status)
+    )
+    status_counts = status_count_result.all()
+
+    counts_map = {
+        FetchStatus.SUCCESS: 0,
+        FetchStatus.WARNING: 0,
+        FetchStatus.ERROR: 0,
+        FetchStatus.INFO: 0,
+    }
+
+    for status_key, count in status_counts:
+        counts_map[status_key] = count
+
+    # ---------- PAGINATION ----------
     offset = (page - 1) * page_size
-    logs = query.order_by(FetchLog.created_at.desc()).offset(offset).limit(page_size).all()
+
+    result = await db.execute(
+        base_query
+        .order_by(FetchLog.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    logs = result.scalars().all()
 
     return {
         "total": total,
-        "success_count": success_count,
-        "warning_count": warning_count,
-        "error_count": error_count,
-        "info_count": info_count,
+        "success_count": counts_map[FetchStatus.SUCCESS],
+        "warning_count": counts_map[FetchStatus.WARNING],
+        "error_count": counts_map[FetchStatus.ERROR],
+        "info_count": counts_map[FetchStatus.INFO],
         "items": logs
     }
 
@@ -57,14 +101,17 @@ async def get_fetch_logs(
 async def fetch_now(
         source_id: Optional[int] = None,
         background_tasks: BackgroundTasks = None,
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-
     from app.businessLogic.source_service import fetch_from_source, fetch_from_all_sources
 
     if source_id:
-        source = db.query(Source).filter(Source.id == source_id).first()
+        result = await db.execute(
+            select(Source).where(Source.id == source_id)
+        )
+        source = result.scalar_one_or_none()
+
         if not source:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -89,7 +136,10 @@ async def fetch_now(
         # Fetch all active sources
         background_tasks.add_task(fetch_from_all_sources, db)
 
-        active_count = db.query(Source).filter(Source.is_active == True).count()
+        active_count_result = await db.execute(
+            select(func.count(Source.id)).where(Source.is_active == True)
+        )
+        active_count = active_count_result.scalar() or 0
 
         return {
             "message": "Fetch started for all active sources",
@@ -99,23 +149,29 @@ async def fetch_now(
 
 @router.get("/status")
 async def get_fetch_status(
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-
-    from sqlalchemy import func
-
     # Get last successful fetch
-    last_success = db.query(FetchLog).filter(
-        FetchLog.status == FetchStatus.SUCCESS
-    ).order_by(FetchLog.created_at.desc()).first()
+    result = await db.execute(
+        select(FetchLog)
+        .where(FetchLog.status == FetchStatus.SUCCESS)
+        .order_by(FetchLog.created_at.desc())
+        .limit(1)
+    )
+    last_success = result.scalar_one_or_none()
 
     # Get sources that haven't been fetched in 24 hours
     day_ago = datetime.utcnow() - timedelta(hours=24)
-    stale_sources = db.query(Source).filter(
-        Source.is_active == True,
-        Source.last_fetch_at < day_ago
-    ).count()
+
+    stale_result = await db.execute(
+        select(func.count(Source.id))
+        .where(
+            Source.is_active == True,
+            Source.last_fetch_at < day_ago
+        )
+    )
+    stale_sources = stale_result.scalar() or 0
 
     return {
         "last_sync": last_success.created_at if last_success else None,
@@ -128,19 +184,22 @@ async def get_fetch_status(
 @router.delete("/logs/clear")
 async def clear_old_logs(
         days: int = Query(30, ge=7, le=365),
-        db: Session = Depends(get_db),
+        db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-
     cutoff_date = datetime.utcnow() - timedelta(days=days)
 
-    deleted = db.query(FetchLog).filter(
-        FetchLog.created_at < cutoff_date
-    ).delete()
+    result = await db.execute(
+        select(FetchLog).where(FetchLog.created_at < cutoff_date)
+    )
+    logs_to_delete = result.scalars().all()
 
-    db.commit()
+    for log in logs_to_delete:
+        await db.delete(log)
+
+    await db.commit()
 
     return {
-        "message": f"Deleted {deleted} log entries older than {days} days",
-        "deleted_count": deleted
+        "message": f"Deleted {len(logs_to_delete)} log entries older than {days} days",
+        "deleted_count": len(logs_to_delete)
     }
