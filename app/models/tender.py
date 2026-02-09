@@ -14,48 +14,116 @@ from sqlalchemy import (
 )
 
 
-
 class Tender(Base):
     __tablename__ = "tenders"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Basic Information
+    # --------------------
+    # BASIC INFORMATION
+    # --------------------
     title = Column(String(500), nullable=False, index=True)
-    reference_id = Column(String(255), unique=True, index=True, nullable=False)
+
+    reference_id = Column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=False
+    )
+
     description = Column(Text)
 
-    # Agency & Location
+    # --------------------
+    # AGENCY & LOCATION
+    # --------------------
     agency_name = Column(String(255), index=True)
+
     agency_location = Column(String(255))
 
-    # Dates
+    # --------------------
+    # DATES
+    # --------------------
     published_date = Column(Date, index=True)
+
     deadline_date = Column(Date, index=True)
 
-    # Source Information
-    source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
+    # --------------------
+    # SOURCE
+    # --------------------
+    source_id = Column(
+        Integer,
+        ForeignKey("sources.id"),
+        nullable=False
+    )
+
     source_url = Column(String(1000))
 
-    # Status
-    status = Column(String(50), default="new", index=True)
+    # --------------------
+    # STATUS
+    # --------------------
+    status = Column(
+        String(50),
+        default="new",
+        index=True
+    )
 
-    # Attachments
+    # --------------------
+    # ATTACHMENTS
+    # --------------------
     attachments = Column(JSON)
 
-    # Change Detection
+    # --------------------
+    # EXCEL IMPORT TRACKING ✅ NEW
+    # --------------------
+    imported_from_excel = Column(
+        Boolean,
+        default=False,
+        index=True
+    )
+
+    excel_row_id = Column(
+        Integer,
+        unique=True,
+        index=True,
+        nullable=True
+    )
+
+    raw_excel_data = Column(
+        JSON,
+        nullable=True
+    )
+
+    # --------------------
+    # CHANGE TRACKING
+    # --------------------
     content_hash = Column(String(64), index=True)
+
     version = Column(Integer, default=1)
 
-    # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # --------------------
+    # METADATA
+    # --------------------
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        index=True
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
     is_deleted = Column(Boolean, default=False)
 
     # --------------------
     # RELATIONSHIPS
     # --------------------
-    source = relationship("Source", back_populates="tenders")
+    source = relationship(
+        "Source",
+        back_populates="tenders"
+    )
 
     notifications = relationship(
         "Notification",
@@ -69,17 +137,26 @@ class Tender(Base):
         cascade="all, delete-orphan"
     )
 
+    # --------------------
+    # HELPERS
+    # --------------------
     def __repr__(self):
         return f"<Tender {self.reference_id}: {self.title[:50]}>"
 
     @property
     def days_until_deadline(self):
         if self.deadline_date:
-            return (self.deadline_date - datetime.utcnow().date()).days
+            return (
+                self.deadline_date
+                - datetime.utcnow().date()
+            ).days
         return None
 
     @property
     def is_expired(self):
         if self.deadline_date:
-            return self.deadline_date < datetime.utcnow().date()
+            return (
+                self.deadline_date
+                < datetime.utcnow().date()
+            )
         return False

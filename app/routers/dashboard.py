@@ -26,9 +26,7 @@ async def get_dashboard_stats(
     today_start = datetime.now().replace(hour=0, minute=0, second=0)
     yesterday_start = today_start - timedelta(days=1)
 
-    # -----------------------
     # New tenders
-    # -----------------------
     new_today = await db.scalar(
         select(func.count(Tender.id))
         .where(Tender.created_at >= today_start)
@@ -49,9 +47,7 @@ async def get_dashboard_stats(
         new_change = ((new_today - new_yesterday) / new_yesterday) * 100
 
 
-    # -----------------------
-    # Matched tenders (via relation)
-    # -----------------------
+    # Matched tenders
     matched_today = await db.scalar(
         select(func.count(func.distinct(Tender.id)))
         .join(TenderKeywordMatch)
@@ -78,9 +74,7 @@ async def get_dashboard_stats(
         ) * 100
 
 
-    # -----------------------
     # Sources
-    # -----------------------
     active_sources = await db.scalar(
         select(func.count(Source.id))
         .where(Source.is_active == True)
@@ -91,15 +85,10 @@ async def get_dashboard_stats(
     ) or 0
 
 
-    # -----------------------
-    # Alerts
-    # -----------------------
     alerts_today = new_today + matched_today
 
 
-    # -----------------------
-    # Top Keywords (30 days)
-    # -----------------------
+    # Top Keywords
     thirty_days_ago = today_start - timedelta(days=30)
 
     result = await db.execute(
@@ -155,13 +144,18 @@ async def get_recent_tenders(
 
     result = await db.execute(
         select(Tender)
-        .options(joinedload(Tender.source))
+        .options(
+            joinedload(Tender.source),
+            joinedload(Tender.keyword_matches)
+                .joinedload(TenderKeywordMatch.keyword),
+        )
         .where(Tender.is_deleted == False)
         .order_by(desc(Tender.created_at))
         .limit(limit)
     )
 
-    tenders = result.scalars().all()
+    #  FIX: unique() added
+    tenders = result.unique().scalars().all()
 
     tender_list = []
 
@@ -169,11 +163,13 @@ async def get_recent_tenders(
 
         status = t.status.lower() if t.status else "viewed"
 
+        # ========================================================
+        # FIX: Convert keywords array to comma-separated string
+        # ========================================================
         keywords = [m.keyword.keyword for m in t.keyword_matches]
-
+        keywords_string = ", ".join(keywords) if keywords else ""  # ← FIXED
 
         tender_list.append({
-
             "id": t.id,
             "title": t.title,
             "reference_id": t.reference_id,
@@ -188,7 +184,10 @@ async def get_recent_tenders(
 
             "status": status,
 
-            "matched_keywords": keywords,
+            # ========================================================
+            # FIX: Return comma-separated string instead of array
+            # ========================================================
+            "matched_keywords": keywords_string,  # ← FIXED (was: keywords)
 
             "description": t.description,
             "source_url": t.source_url,
@@ -197,7 +196,6 @@ async def get_recent_tenders(
 
             "created_at": t.created_at
         })
-
 
     return tender_list
 
@@ -213,19 +211,23 @@ async def get_source_status_overview(
 
     today_start = datetime.now().replace(hour=0, minute=0, second=0)
 
-
+    #  FIX: Clean outer join (no or_)
     result = await db.execute(
         select(
             Source.name,
             func.count(Tender.id)
         )
-        .join(Tender, Tender.source_id == Source.id)
-        .where(Tender.created_at >= today_start)
+        .outerjoin(
+            Tender,
+            and_(
+                Tender.source_id == Source.id,
+                Tender.created_at >= today_start
+            )
+        )
         .group_by(Source.name)
     )
 
     tender_counts = dict(result.all())
-
 
     result = await db.execute(
         select(Source)
@@ -233,7 +235,6 @@ async def get_source_status_overview(
     )
 
     sources = result.scalars().all()
-
 
     result_list = []
 
@@ -245,16 +246,16 @@ async def get_source_status_overview(
 
             "name": s.name,
 
-            "status": s.fetch_status or "UNKNOWN",
+            #  FIXED FIELD
+            "status": s.status or "UNKNOWN",
 
             "tenders_today": count_today,
 
             "last_fetch": (
-                s.last_fetch.isoformat()
-                if s.last_fetch
+                s.last_fetch_at.isoformat()
+                if s.last_fetch_at
                 else None
             )
         })
-
 
     return result_list

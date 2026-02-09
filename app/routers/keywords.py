@@ -44,6 +44,31 @@ async def get_categories(
     }
 
 
+@router.get("/active")
+async def get_active_keywords(
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    Get all active keywords as a simple list of strings.
+    Used by frontend for keyword matching in Excel tenders.
+    No authentication required for read-only public data.
+
+    Returns: ["construction", "engineering", "infrastructure", ...]
+
+    Example:
+        GET /api/keywords/active
+        Response: ["bridge", "construction", "engineering", "road", "water"]
+    """
+    stmt = select(Keyword.keyword).where(
+        Keyword.is_active == True
+    ).order_by(Keyword.keyword)
+
+    result = await db.execute(stmt)
+    keywords = result.scalars().all()
+
+    # Return simple list of keyword strings (not objects)
+    return keywords
+
 @router.get("/", response_model=KeywordList)
 async def get_keywords(
         # Filters

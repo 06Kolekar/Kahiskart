@@ -18,9 +18,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
+from sqlalchemy.orm import selectinload
+from app.models.keyword import TenderKeywordMatch
+
 
 router = APIRouter()
 
+
+from sqlalchemy.orm import selectinload
 
 @router.get("/", response_model=TenderList)
 async def get_tenders(
@@ -34,9 +39,22 @@ async def get_tenders(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    stmt = select(Tender).where(Tender.is_deleted == False)
 
+    stmt = (
+        select(Tender)
+        .options(
+            selectinload(Tender.source),
+            selectinload(Tender.keyword_matches).selectinload(
+                TenderKeywordMatch.keyword
+            )
+        )
+        .where(Tender.is_deleted == False)
+    )
+
+    # --------------------
     # Filters
+    # --------------------
+
     if status:
         stmt = stmt.where(Tender.status == status)
 
@@ -44,13 +62,13 @@ async def get_tenders(
         stmt = stmt.where(Tender.source_id == source_id)
 
     if search:
-        search_term = f"%{search}%"
+        term = f"%{search}%"
         stmt = stmt.where(
             or_(
-                Tender.title.ilike(search_term),
-                Tender.reference_id.ilike(search_term),
-                Tender.agency_name.ilike(search_term),
-                Tender.description.ilike(search_term),
+                Tender.title.ilike(term),
+                Tender.reference_id.ilike(term),
+                Tender.agency_name.ilike(term),
+                Tender.description.ilike(term),
             )
         )
 
@@ -60,34 +78,96 @@ async def get_tenders(
     if date_to:
         stmt = stmt.where(Tender.published_date <= date_to)
 
-    # Total count
+    # --------------------
+    # Count
+    # --------------------
+
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = await db.scalar(count_stmt)
 
+    # --------------------
     # Pagination
-    offset = (page - 1) * page_size
+    # --------------------
+
     stmt = (
         stmt
         .order_by(Tender.created_at.desc())
-        .offset(offset)
+        .offset((page - 1) * page_size)
         .limit(page_size)
     )
 
     result = await db.execute(stmt)
-    tenders = result.scalars().all()
+    tenders = result.scalars().unique().all()
 
     items = []
+
+    today = date.today()
+
     for tender in tenders:
-        tender_dict = TenderResponse.from_orm(tender).dict()
-        tender_dict["source_name"] = tender.source.name if tender.source else None
-        items.append(TenderResponse(**tender_dict))
+
+        # --------------------
+        # Days left
+        # --------------------
+
+        days_left = None
+
+        if tender.deadline_date:
+            days_left = (tender.deadline_date - today).days
+
+        # --------------------
+        # Keywords
+        # --------------------
+
+        keyword_list = []
+
+        for km in tender.keyword_matches or []:
+            if km.keyword:
+                keyword_list.append(km.keyword.keyword)
+
+        # --------------------
+        # Build Response
+        # --------------------
+
+        item = {
+            "id": tender.id,
+            "title": tender.title,
+            "reference_id": tender.reference_id,
+
+            "agency_name": tender.agency_name or "N/A",
+            "agency_location": tender.agency_location or "N/A",
+
+            "source_name": tender.source.name if tender.source else "Unknown",
+
+            "deadline_date": (
+                tender.deadline_date.isoformat()
+                if tender.deadline_date
+                else None
+            ),
+
+            "days_until_deadline": days_left if days_left else 0,
+
+            "status": tender.status,
+
+            "description": tender.description or "",
+
+            "keywords": keyword_list,
+
+            "published_date": (
+                tender.published_date.isoformat()
+                if tender.published_date
+                else None
+            )
+        }
+
+        items.append(item)
 
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": items,
+        "items": items
     }
+
     
 
 @router.get("/{tender_id}", response_model=TenderResponse)

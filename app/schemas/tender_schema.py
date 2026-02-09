@@ -43,21 +43,29 @@ class TenderUpdate(BaseModel):
     attachments: Optional[List[Dict[str, Any]]] = None
 
 
-class TenderResponse(TenderBase):
+class TenderResponse(BaseModel):
     id: int
-    reference_id: str
-    source_id: int
-    status: str
-    matched_keywords: Optional[List[int]] = []
-    keyword_match_count: int = 0
-    attachments: Optional[List[Dict[str, Any]]] = []
-    created_at: datetime
-    updated_at: datetime
-    days_until_deadline: Optional[int] = None
-    is_expired: bool = False
+    title: str
+    reference_id: Optional[str]
+    agency_name: Optional[str]
+    agency_location: Optional[str]
 
-    # Related data
-    source_name: Optional[str] = None
+    # NEW
+    source_name: Optional[str]
+
+    deadline_date: Optional[datetime]
+    days_until_deadline: Optional[int]
+
+    status: Optional[str]
+    description: Optional[str]
+    published_date: Optional[datetime]
+
+    keywords: List[str] = []
+
+    # MAKE OPTIONAL
+    source_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
