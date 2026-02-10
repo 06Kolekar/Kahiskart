@@ -8,6 +8,9 @@ from app.businessLogic.onedrive_service import OneDriveService
 # from app.businessLogic.excel_processor_local import ExcelProcessorLocal
 from app.businessLogic.excel_processor_sync import ExcelProcessorSync
 # from app.businessLogic.excel_processor_parallel import ExcelProcessorParallel
+from app.businessLogic.excel_processor_clean import CleanTransformer
+from app.businessLogic.excel_background_runner import ExcelBackgroundRunner
+from app.businessLogic.excel_keeper import run_excel_keeper, get_excel_paths
 
 __all__ = [
     "TenderService",
@@ -18,4 +21,8 @@ __all__ = [
     "ScraperService",
     "OneDriveService",
     "ExcelProcessorSync",
+    "CleanTransformer",
+    "run_excel_keeper",
+    "get_excel_paths",
+    "ExcelBackgroundRunner",
 ]

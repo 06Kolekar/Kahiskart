@@ -1572,3 +1572,21 @@ If you want, I will give you:
 Just say:
 
 "bro make enterprise version"
+
+
+----------------------------------
+
+POWER BI
+
+----------------------------------
+
+SELECT 
+    id,
+    sheet_id,
+    row_index,
+    row_data,
+    created_at
+FROM excel_row_raw;
+
+👉 https://dev.mysql.com/downloads/connector/net/
+

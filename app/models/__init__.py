@@ -7,6 +7,7 @@ from .notification import Notification
 from .refresh_token import RefreshToken
 from .app_settings import AppSettings
 from .excel_raw import ExcelFile, ExcelSheet, ExcelRowRaw
+from .excel_row_clean import ExcelRowClean
 
 __all__ = [
     "User",
@@ -20,4 +21,5 @@ __all__ = [
     "ExcelFile",
     "ExcelSheet",
     "ExcelRowRaw",
+    "ExcelRowClean",
 ]
