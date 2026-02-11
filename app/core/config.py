@@ -78,7 +78,8 @@
 
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from dotenv import load_dotenv
+load_dotenv()
 
 class Settings(BaseSettings):
     # ------------------------------------------------------------------
@@ -96,6 +97,7 @@ class Settings(BaseSettings):
     # Database
     # ------------------------------------------------------------------
     DATABASE_URL: str
+    DB_TYPE: str = "sqlite"
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 3306
     DATABASE_USER: str = "root"

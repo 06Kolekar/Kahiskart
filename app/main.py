@@ -140,3 +140,8 @@ async def startup_event():
     start_scheduler()              # excel ingest
     start_clean_scheduler()        # cleaning job
     logger.info("All schedulers started")
+
+@app.on_event("startup")
+async def create_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
