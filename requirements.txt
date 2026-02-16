@@ -48,15 +48,13 @@ pyee==11.0.1
 PyMySQL==1.1.0
 PyPDF2==3.0.1
 pypdfium2==5.3.0
-pypiwin32==223
 PySocks==1.7.1
 python-dateutil==2.8.2
 python-dotenv==1.0.0
-python-jose==3.3.0
-python-magic-bin==0.4.14
+python-jose==3.2.0
+python-magic==0.4.27
 python-multipart==0.0.6
 pytz==2023.3
-pywin32==311
 PyYAML==6.0.3
 requests==2.31.0
 rsa==4.9.1
@@ -78,5 +76,4 @@ urllib3==2.6.3
 uvicorn==0.24.0
 watchfiles==1.1.1
 websockets==16.0
-win10toast==0.9
 wsproto==1.3.2
