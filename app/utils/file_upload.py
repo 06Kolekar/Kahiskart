@@ -1,5 +1,4 @@
 import aiofiles
-import magic
 import uuid
 import os
 
@@ -15,55 +14,44 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILE_SIZE = settings.MAX_UPLOAD_SIZE
 
-ALLOWED_MIME = {
-    "image/jpeg",
-    "image/png",
-    "image/webp"
-}
+# Allowed image extensions
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 async def validate_image(file: UploadFile):
+    # Validate extension
+    ext = os.path.splitext(file.filename)[1].lower()
 
-    # Read first bytes to detect type
-    content = await file.read(1024)
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Invalid image type")
 
-    mime = magic.from_buffer(content, mime=True)
-
-    await file.seek(0)
-
-    if mime not in ALLOWED_MIME:
-        raise HTTPException(400, "Invalid image type")
-
-    # Check file size
+    # Validate size
     size = 0
 
     while chunk := await file.read(1024):
         size += len(chunk)
 
-    await file.seek(0)
+        if size > MAX_FILE_SIZE:
+            await file.seek(0)
+            raise HTTPException(status_code=400, detail="File too large")
 
-    if size > MAX_FILE_SIZE:
-        raise HTTPException(400, "File too large")
+    await file.seek(0)
 
 
 async def save_upload_file(file: UploadFile, user_id: int):
-
     ext = os.path.splitext(file.filename)[1].lower()
-
     filename = f"{user_id}_{uuid.uuid4().hex}{ext}"
-
     path = UPLOAD_DIR / filename
 
     async with aiofiles.open(path, "wb") as f:
-
         while chunk := await file.read(1024):
             await f.write(chunk)
 
+    await file.seek(0)
     return filename
 
 
 def delete_old_profile_picture(filename: str):
-
     if not filename:
         return
 
@@ -72,8 +60,8 @@ def delete_old_profile_picture(filename: str):
     if path.exists():
         path.unlink()
 
-def build_profile_url(filename: str | None):
 
+def build_profile_url(filename: str | None):
     if not filename:
         return None
 
