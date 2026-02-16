@@ -143,7 +143,12 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error occurred"}
     )
     
+# @app.on_event("startup")
+# async def startup_event():
+#     start_scheduler()
+#     print("Scheduler Started")
 @app.on_event("startup")
 async def startup_event():
-    start_scheduler()
-    print("Scheduler Started")
+    if not scheduler.running:
+        start_scheduler()
+        print("Scheduler Started")
