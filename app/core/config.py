@@ -96,11 +96,11 @@ class Settings(BaseSettings):
     # Database
     # ------------------------------------------------------------------
     DATABASE_URL: str
-    DATABASE_HOST: str = "localhost"
+    DATABASE_HOST: str = "mysql.railway.internal"
     DATABASE_PORT: int = 3306
     DATABASE_USER: str = "root"
     DATABASE_PASSWORD: str
-    DATABASE_NAME: str = "tender_db"
+    DATABASE_NAME: str = "railway"
 
     # ------------------------------------------------------------------
     # Security
