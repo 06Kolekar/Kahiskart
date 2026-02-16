@@ -76,4 +76,4 @@ uvicorn
 watchfiles
 websockets
 wsproto
-python-magic-bin
+python-magic
