@@ -37,3 +37,4 @@ tzlocal
 uvicorn
 watchfiles
 websockets
+plyer==2.1.0
