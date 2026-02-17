@@ -48,7 +48,7 @@ async def send_password_reset_otp(
     otp: str,
     user_name: Optional[str] = "User"
 ):
-    subject = "Password Reset OTP"
+    subject = "Tender Intel OTP"
 
     html = f"""
     <h2>Hello {user_name},</h2>

@@ -14,13 +14,17 @@ class User(Base):
     phone_number = Column(String(20), nullable=True, unique=True)
     profile_picture = Column(String(255), nullable=True)
 
-    # Email Verification
+    # # Email Verification
     is_verified = Column(Boolean, default=False)
-    verification_token = Column(String(255), unique=True, nullable=True)
-    verification_token_expires = Column(DateTime, nullable=True)
+
+
+
+    signup_otp = Column(String(255), nullable=True)
+    signup_otp_expires = Column(DateTime, nullable=True)
+    signup_otp_attempts = Column(Integer, default=0)
 
     # Password Reset (OTP)
-    reset_otp = Column(String(6), nullable=True)
+    reset_otp = Column(String(255), nullable=True)
     reset_otp_expires = Column(DateTime, nullable=True)
     reset_otp_attempts = Column(Integer, default=0)
 

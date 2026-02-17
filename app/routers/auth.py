@@ -27,13 +27,13 @@ from app.schemas.user_schema import (
     Token,
     TokenWithRefresh,
     RefreshTokenRequest,
-    VerifyEmailRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
-    ResendVerificationRequest,
     UpdateEmailRequest,
     UpdatePasswordRequest,
     UserUpdateRequest,
+VerifySignupOTPRequest,
+VerifyEmailChangeOTPRequest,
 )
 
 from app.notifications.email_sender import (
@@ -118,154 +118,151 @@ async def register(
     db: AsyncSession = Depends(get_db)
 ):
     if not is_valid_email(user_data.email):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Temporary or disposable email addresses are not allowed"
-        )
+        raise HTTPException(400, "Temporary emails not allowed")
 
     result = await db.execute(
         select(User).where(User.email == user_data.email)
     )
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(400, "Email already registered")
 
-    verification_token = generate_verification_token()
-    token_expires = datetime.utcnow() + timedelta(hours=24)
+    otp = generate_otp()
+    otp_expires = datetime.utcnow() + timedelta(minutes=10)
 
     user = User(
         email=user_data.email,
         full_name=user_data.full_name,
         hashed_password=get_password_hash(user_data.password),
         is_verified=False,
-        verification_token=verification_token,
-        verification_token_expires=token_expires,
+        signup_otp=get_password_hash(otp),
+        signup_otp_expires=otp_expires,
+        signup_otp_attempts=0,
     )
 
     db.add(user)
     await db.commit()
-    await db.refresh(user)
 
-    verification_link = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
     background_tasks.add_task(
-        send_verification_email,
+        send_password_reset_otp,
         to_email=user.email,
-        verification_link=verification_link,
+        otp=otp,
         user_name=user.full_name or "User"
     )
 
-    return {"message": "Registration successful. Verify your email."}
+    return {"message": "OTP sent to your email. Please verify."}
 
 
 
-@router.post("/verify-email", response_model=TokenWithRefresh)
-async def verify_email(
-    verify_data: VerifyEmailRequest,
-    db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(User).where(User.verification_token == verify_data.token)
-    )
-    user = result.scalar_one_or_none()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid verification token"
-        )
+# @router.post("/verify-email", response_model=TokenWithRefresh)
+# async def verify_email(
+#     verify_data: VerifyEmailRequest,
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     result = await db.execute(
+#         select(User).where(User.verification_token == verify_data.token)
+#     )
+#     user = result.scalar_one_or_none()
+#
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Invalid verification token"
+#         )
+#
+#     if user.is_verified:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Email already verified"
+#         )
+#
+#     if user.verification_token_expires < datetime.utcnow():
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Verification token has expired"
+#         )
+#
+#     # Verify user
+#     user.is_verified = True
+#     user.verification_token = None
+#     user.verification_token_expires = None
+#
+#     # Create access token
+#     access_token = create_access_token(
+#         data={"sub": user.email},
+#         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+#     )
+#
+#     # Create refresh token
+#     raw_refresh_token = create_refresh_token()
+#     hashed_refresh_token = hash_refresh_token(raw_refresh_token)
+#
+#     refresh_token = RefreshToken(
+#         token_hash=hashed_refresh_token,
+#         user_id=user.id,
+#         expires_at=get_refresh_token_expiry(),
+#     )
+#
+#     db.add(refresh_token)
+#     await db.commit()
+#
+#     return {
+#         "access_token": access_token,
+#         "refresh_token": raw_refresh_token,
+#         "token_type": "bearer",
+#         "user": {
+#             "id": user.id,
+#             "email": user.email,
+#             "full_name": user.full_name,
+#             "is_verified": user.is_verified,
+#             "is_active": user.is_active,
+#             "is_superuser": user.is_superuser,
+#             "created_at": user.created_at,
+#             "last_login": user.last_login,
+#         },
+#     }
 
-    if user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already verified"
-        )
-
-    if user.verification_token_expires < datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification token has expired"
-        )
-
-    # Verify user
-    user.is_verified = True
-    user.verification_token = None
-    user.verification_token_expires = None
-
-    # Create access token
-    access_token = create_access_token(
-        data={"sub": user.email},
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-    )
-
-    # Create refresh token
-    raw_refresh_token = create_refresh_token()
-    hashed_refresh_token = hash_refresh_token(raw_refresh_token)
-
-    refresh_token = RefreshToken(
-        token_hash=hashed_refresh_token,
-        user_id=user.id,
-        expires_at=get_refresh_token_expiry(),
-    )
-
-    db.add(refresh_token)
-    await db.commit()
-
-    return {
-        "access_token": access_token,
-        "refresh_token": raw_refresh_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "full_name": user.full_name,
-            "is_verified": user.is_verified,
-            "is_active": user.is_active,
-            "is_superuser": user.is_superuser,
-            "created_at": user.created_at,
-            "last_login": user.last_login,
-        },
-    }
 
 
-
-@router.post("/resend-verification", response_model=dict)
-async def resend_verification(
-        request: ResendVerificationRequest,
-        background_tasks: BackgroundTasks,
-        db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(User).where(User.email == request.email)
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        # Don't reveal if email exists
-        return {"message": "If the email exists, a verification link has been sent."}
-
-    if user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already verified"
-        )
-
-    # Generate new token
-    verification_token = generate_verification_token()
-    token_expires = datetime.utcnow() + timedelta(hours=24)
-
-    user.verification_token = verification_token
-    user.verification_token_expires = token_expires
-    await db.commit()
-
-    # Send email
-    verification_link = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
-    background_tasks.add_task(
-        send_verification_email,
-        to_email=user.email,
-        verification_link=verification_link,
-        user_name=user.full_name or "User"
-    )
-
-    return {"message": "Verification email sent. Please check your inbox."}
+# @router.post("/resend-verification", response_model=dict)
+# async def resend_verification(
+#         request: ResendVerificationRequest,
+#         background_tasks: BackgroundTasks,
+#         db: AsyncSession = Depends(get_db)
+# ):
+#     result = await db.execute(
+#         select(User).where(User.email == request.email)
+#     )
+#     user = result.scalar_one_or_none()
+#
+#     if not user:
+#         # Don't reveal if email exists
+#         return {"message": "If the email exists, a verification link has been sent."}
+#
+#     if user.is_verified:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Email already verified"
+#         )
+#
+#     # Generate new token
+#     verification_token = generate_verification_token()
+#     token_expires = datetime.utcnow() + timedelta(hours=24)
+#
+#     user.verification_token = verification_token
+#     user.verification_token_expires = token_expires
+#     await db.commit()
+#
+#     # Send email
+#     verification_link = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
+#     background_tasks.add_task(
+#         send_verification_email,
+#         to_email=user.email,
+#         verification_link=verification_link,
+#         user_name=user.full_name or "User"
+#     )
+#
+#     return {"message": "Verification email sent. Please check your inbox."}
 
 
 @router.post("/login", response_model=TokenWithRefresh)
@@ -372,19 +369,17 @@ async def forgot_password(
     user = result.scalar_one_or_none()
 
     if not user:
-        # Don't reveal if email exists
         return {"message": "If the email exists, an OTP has been sent."}
 
-    # Generate OTP
     otp = generate_otp()
     otp_expires = datetime.utcnow() + timedelta(minutes=10)
 
-    user.reset_otp = otp
+    user.reset_otp = get_password_hash(otp)
     user.reset_otp_expires = otp_expires
     user.reset_otp_attempts = 0
+
     await db.commit()
 
-    # Send OTP via email
     background_tasks.add_task(
         send_password_reset_otp,
         to_email=user.email,
@@ -393,8 +388,7 @@ async def forgot_password(
     )
 
     return {
-        "message": "OTP sent to your email. Valid for 10 minutes.",
-        "email": user.email
+        "message": "OTP sent to your email. Valid for 10 minutes."
     }
 
 
@@ -409,48 +403,32 @@ async def reset_password(
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or OTP"
-        )
+        raise HTTPException(400, "Invalid email or OTP")
 
     if not user.reset_otp:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No OTP requested. Please request a password reset first."
-        )
+        raise HTTPException(400, "No OTP requested. Please request again.")
 
-    # Check OTP attempts
     if user.reset_otp_attempts >= 5:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many attempts. Please request a new OTP."
-        )
+        raise HTTPException(429, "Too many attempts. Please request a new OTP.")
 
-    # Check if OTP expired
-    if user.reset_otp_expires < datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OTP has expired. Please request a new one."
-        )
+    if not user.reset_otp_expires or user.reset_otp_expires < datetime.utcnow():
+        raise HTTPException(400, "OTP expired")
 
-    # Verify OTP
-    if user.reset_otp != reset_data.otp:
+    #  Verify hashed OTP
+    if not verify_password(reset_data.otp, user.reset_otp):
         user.reset_otp_attempts += 1
         await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid OTP. {5 - user.reset_otp_attempts} attempts remaining."
-        )
+        raise HTTPException(400, "Invalid email or OTP")
 
-    # Reset password
+    #  Reset password
     user.hashed_password = get_password_hash(reset_data.new_password)
     user.reset_otp = None
     user.reset_otp_expires = None
     user.reset_otp_attempts = 0
+
     await db.commit()
 
-    return {"message": "Password reset successful. You can now login with your new password."}
+    return {"message": "Password reset successful. You can now login."}
 
 
 @router.get("/me", response_model=UserResponse, status_code=status.HTTP_200_OK)
@@ -611,47 +589,38 @@ async def update_email(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Verify password
     if not verify_password(data.current_password, current_user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid password")
+        raise HTTPException(401, "Invalid password")
 
-    # Check if new email is same as current
     if data.new_email == current_user.email:
-        raise HTTPException(status_code=400, detail="New email is the same as current email")
+        raise HTTPException(400, "New email cannot be same as current email")
 
-    # Check email uniqueness
     result = await db.execute(
         select(User).where(User.email == data.new_email)
     )
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already in use")
+        raise HTTPException(400, "Email already in use")
 
-    # Validate domain
     if not is_valid_email(data.new_email):
-        raise HTTPException(status_code=400, detail="Temporary emails not allowed")
+        raise HTTPException(400, "Temporary emails not allowed")
 
-    # Generate verification token
-    token = generate_verification_token()
-    expires = datetime.utcnow() + timedelta(hours=24)
+    otp = generate_otp()
 
-    current_user.email = data.new_email
-    current_user.is_verified = False
-    current_user.verification_token = token
-    current_user.verification_token_expires = expires
+    current_user.pending_email = data.new_email
+    current_user.email_change_otp = get_password_hash(otp)
+    current_user.email_change_otp_expires = datetime.utcnow() + timedelta(minutes=10)
+    current_user.email_change_otp_attempts = 0
+
     await db.commit()
 
-    verification_link = f"{settings.FRONTEND_URL}/verify-email?token={token}"
-
     background_tasks.add_task(
-        send_verification_email,
+        send_password_reset_otp,
         to_email=data.new_email,
-        verification_link=verification_link,
-        user_name=current_user.full_name or "User",
+        otp=otp,
+        user_name=current_user.full_name or "User"
     )
 
-    return {
-        "message": "Email updated. Please verify your new email address."
-    }
+    return {"message": "OTP sent to new email. Please verify to complete change."}
 
 
 @router.post("/update-password", response_model=dict)
@@ -689,6 +658,7 @@ async def refresh_token(
         .where(
             RefreshToken.token_hash == hashed,
             RefreshToken.expires_at > datetime.utcnow(),
+            RefreshToken.revoked == False
         )
     )
     token_entry = result.scalar_one_or_none()
@@ -696,15 +666,16 @@ async def refresh_token(
     if not token_entry:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    #  DO NOT use token_entry.user
+    # Get user safely
     result = await db.execute(
         select(User).where(User.id == token_entry.user_id)
     )
     user = result.scalar_one()
 
-    # Rotate refresh token
-    await db.delete(token_entry)
+    # Revoke old refresh token
+    token_entry.revoked = True
 
+    # Create new refresh token
     new_raw_refresh = create_refresh_token()
     new_hashed_refresh = hash_refresh_token(new_raw_refresh)
 
@@ -719,7 +690,10 @@ async def refresh_token(
     await db.commit()
 
     return {
-        "access_token": create_access_token({"sub": user.email}),
+        "access_token": create_access_token(
+            {"sub": user.email},
+            expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        ),
         "refresh_token": new_raw_refresh,
         "token_type": "bearer",
         "user": user,
@@ -748,3 +722,107 @@ async def logout(
 
     # Always return success (do not reveal token state)
     return {"message": "Logged out successfully"}
+
+
+@router.post("/verify-signup-otp", response_model=TokenWithRefresh)
+async def verify_signup_otp(
+    data: VerifySignupOTPRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(User).where(User.email == data.email)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(400, "Invalid email or OTP")
+
+    if user.is_verified:
+        raise HTTPException(400, "Account already verified")
+
+    if user.signup_otp_attempts >= 5:
+        raise HTTPException(429, "Too many attempts. Please request a new OTP.")
+
+    if not user.signup_otp_expires or user.signup_otp_expires < datetime.utcnow():
+        raise HTTPException(400, "OTP expired")
+
+    if not verify_password(data.otp, user.signup_otp):
+        user.signup_otp_attempts += 1
+        await db.commit()
+        raise HTTPException(400, "Invalid email or OTP")
+
+    #  Mark verified
+    user.is_verified = True
+    user.signup_otp = None
+    user.signup_otp_expires = None
+    user.signup_otp_attempts = 0
+
+    await db.commit()
+
+    # Create tokens
+    access_token = create_access_token(
+        {"sub": user.email},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+
+    raw_refresh = create_refresh_token()
+
+    db.add(
+        RefreshToken(
+            token_hash=hash_refresh_token(raw_refresh),
+            user_id=user.id,
+            expires_at=get_refresh_token_expiry()
+        )
+    )
+
+    await db.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": raw_refresh,
+        "token_type": "bearer",
+        "user": user
+    }
+
+@router.post("/verify-email-change-otp", response_model=dict)
+async def verify_email_change_otp(
+    data: VerifyEmailChangeOTPRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.pending_email:
+        raise HTTPException(400, "No email change request found")
+
+    if current_user.email_change_otp_attempts >= 5:
+        raise HTTPException(429, "Too many attempts")
+
+    if (
+        not current_user.email_change_otp_expires
+        or current_user.email_change_otp_expires < datetime.utcnow()
+    ):
+        raise HTTPException(400, "OTP expired")
+
+    if not verify_password(data.otp, current_user.email_change_otp):
+        current_user.email_change_otp_attempts += 1
+        await db.commit()
+        raise HTTPException(400, "Invalid OTP")
+
+    #  Final uniqueness check (race condition safety)
+    result = await db.execute(
+        select(User).where(User.email == current_user.pending_email)
+    )
+    existing_user = result.scalar_one_or_none()
+
+    if existing_user:
+        raise HTTPException(400, "Email already in use")
+
+    #  Swap email
+    current_user.email = current_user.pending_email
+    current_user.pending_email = None
+    current_user.email_change_otp = None
+    current_user.email_change_otp_expires = None
+    current_user.email_change_otp_attempts = 0
+
+    await db.commit()
+
+    return {"message": "Email updated successfully"}
